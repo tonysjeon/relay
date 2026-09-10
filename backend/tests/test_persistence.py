@@ -5,7 +5,6 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
-from app.core.config import Settings
 from app.models import (
     StepDependency,
     StepRun,
@@ -22,7 +21,7 @@ from app.services.runs import (
     get_workflow_run,
     update_step_status,
 )
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -37,24 +36,6 @@ def migrate(engine, operation, revision=None):
             operation(config)
         else:
             operation(config, revision)
-
-
-@pytest.fixture(scope="module")
-def database():
-    """Use a dedicated database; never migrate or clear the application database."""
-    admin = create_engine(Settings().database_url, isolation_level="AUTOCOMMIT")
-    name = f"relay_test_{uuid4().hex}"
-    engine = create_engine(admin.url.set(database=name))
-    try:
-        with admin.connect() as connection:
-            connection.execute(text(f'CREATE DATABASE "{name}"'))
-        migrate(engine, command.upgrade, "head")
-        yield engine
-    finally:
-        engine.dispose()
-        with admin.connect() as connection:
-            connection.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
-        admin.dispose()
 
 
 @pytest.fixture
