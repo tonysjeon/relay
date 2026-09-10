@@ -1,7 +1,7 @@
 # Relay
 
 Relay is a fault-tolerant workflow runtime for long-running AI and backend tasks.
-Phases 1–3 provide local infrastructure, persistent state, and workflow definitions.
+Phases 1–4 provide local infrastructure, workflow definitions, and persistent runs.
 Workflow execution comes in later phases.
 
 ## Run
@@ -150,6 +150,36 @@ including self-dependencies. Independent roots and parallel branches are valid.
 Validation never invokes handlers or accesses PostgreSQL or Redis.
 
 Run definition tests without Docker from `backend/` with
-`pytest tests/test_workflows.py`. These definitions do not yet create database
-records or execute steps. Phase 4 will validate a definition and persist its run,
-steps, and dependencies, marking initial steps ready.
+`pytest tests/test_workflows.py`.
+
+## Create a workflow run
+
+After applying migrations, use the Python entry point to persist a definition:
+
+```python
+from app import relay
+
+# Using the workflow defined above:
+run_id = relay.run(workflow, {"company": "Stripe"})
+print(run_id)
+```
+
+`relay.run` validates the graph before accessing PostgreSQL, then commits the
+workflow, all steps, and dependency edges in one transaction. It returns a UUID
+only after the transaction commits. Errors propagate and roll back the entire
+creation. Each call creates a separate run, even for the same definition/input.
+
+The workflow starts `PENDING`. Steps without dependencies start `READY`; other
+steps start `PENDING`. Retry limits are copied from the definitions, attempt
+counts start at zero, and outputs and execution timestamps remain unset.
+The input is stored on the workflow; per-step context is constructed in a later
+phase. No handlers execute and no Redis jobs are queued yet.
+
+By default the entry point uses `DATABASE_URL` and disposes its engine afterward.
+An application can supply a reusable SQLAlchemy engine with
+`relay.run(workflow, input, engine=engine)`; it retains ownership of that engine.
+Use `get_workflow_run` from the persistence example to inspect the saved graph.
+
+Run `docker compose exec api pytest --integration` to test creation, initial
+states, independent runs, and transaction rollback against PostgreSQL.
+Phase 5 adds Redis queueing for ready steps.
