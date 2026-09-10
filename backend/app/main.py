@@ -1,0 +1,27 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.api.health import router
+from app.core.config import Settings
+from app.db.connections import create_database_engine, create_redis_client
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = Settings()
+    engine = create_database_engine(settings)
+    try:
+        redis = create_redis_client(settings)
+        try:
+            app.state.engine = engine
+            app.state.redis = redis
+            yield
+        finally:
+            redis.close()
+    finally:
+        engine.dispose()
+
+
+app = FastAPI(title="Relay", lifespan=lifespan)
+app.include_router(router)
