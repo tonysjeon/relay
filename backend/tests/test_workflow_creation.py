@@ -171,3 +171,10 @@ def test_supplied_engine_remains_owned_by_caller(database):
     with patch.object(database, "dispose", wraps=database.dispose) as dispose:
         relay.run(workflow, {}, engine=database)
         dispose.assert_not_called()
+
+
+@pytest.fixture(autouse=True)
+def isolate_queue_dispatch():
+    # This module tests database creation. Real Redis dispatch is covered in test_queue.
+    with patch("app.services.workflows.create_redis_client", return_value=Mock()):
+        yield
