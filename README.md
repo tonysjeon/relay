@@ -1,7 +1,7 @@
 # Relay
 
 Relay is a fault-tolerant workflow runtime for long-running AI and backend tasks.
-Phases 1 and 2 provide local infrastructure and persistent workflow state.
+Phases 1–3 provide local infrastructure, persistent state, and workflow definitions.
 Workflow execution comes in later phases.
 
 ## Run
@@ -118,4 +118,38 @@ a missing run. `get_step_runs` returns its steps, or an empty list.
 it does not execute work or apply transition, retry, or timestamp rules yet.
 Additional model fields can be changed in the same session transaction.
 
-Phase 3 will add Python workflow definitions and DAG validation.
+## Workflow definitions
+
+Define workflows in Python with `app.workflows.Workflow`:
+
+```python
+from app.workflows import Workflow
+
+def fetch(ctx):
+    return {"company": ctx["workflow_input"]["company"]}
+
+def analyze(ctx):
+    return {"company": ctx["step_outputs"]["fetch"]["company"], "score": 92}
+
+workflow = Workflow("research_company")
+workflow.step("fetch", fetch)
+workflow.step("analyze", analyze, depends_on=["fetch"], retries=3)
+workflow.validate()
+```
+
+`step()` returns an immutable `StepDefinition`; `workflow.steps` exposes a
+read-only mapping in declaration order. Dependencies are copied into tuples.
+`retries` counts additional attempts: the default `0` gives `max_attempts=1`,
+and `retries=3` gives `max_attempts=4`.
+
+Duplicate names and invalid configuration values raise `ValueError` immediately.
+Non-callable handlers and a bare string instead of a dependency list raise `TypeError`.
+Dependencies may reference steps declared later. Call `validate()` after defining
+the full graph: it rejects empty workflows, missing dependencies, and cycles,
+including self-dependencies. Independent roots and parallel branches are valid.
+Validation never invokes handlers or accesses PostgreSQL or Redis.
+
+Run definition tests without Docker from `backend/` with
+`pytest tests/test_workflows.py`. These definitions do not yet create database
+records or execute steps. Phase 4 will validate a definition and persist its run,
+steps, and dependencies, marking initial steps ready.
