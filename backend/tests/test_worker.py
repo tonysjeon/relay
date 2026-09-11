@@ -164,16 +164,16 @@ def test_json_output_types(database, queue, output):
         (Mock(return_value=float("nan")), ValueError),
     ],
 )
-def test_failures_propagate_without_marking_step_completed(
+def test_failures_are_persisted_without_marking_step_completed(
     database, queue, handler, exception
 ):
     workflow, _, ids = create_run(database, queue, handler)
-    with pytest.raises(exception):
-        execute_step(database, ids["fetch"], {workflow.name: workflow})
+    assert execute_step(database, ids["fetch"], {workflow.name: workflow})
     with Session(database) as session:
         step = session.get(StepRun, ids["fetch"])
-        assert step.status == StepStatus.RUNNING
-        assert step.output is None and step.completed_at is None
+        assert step.status == StepStatus.FAILED
+        assert step.error.startswith(exception.__name__)
+        assert step.output is None and step.completed_at is not None
 
 
 @pytest.mark.parametrize(

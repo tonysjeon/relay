@@ -16,6 +16,7 @@ from app.core.config import Settings
 from app.db.connections import create_redis_client
 from app.models import StepDependency, StepRun, StepStatus, WorkflowRun, WorkflowStatus
 from app.services.dependencies import unlock_dependents
+from app.services.failures import record_failure
 from app.services.queue import JOB_QUEUE, enqueue_steps
 from app.services.workflows import QueueDispatchError
 from app.workflows import Workflow
@@ -31,7 +32,7 @@ def execute_step(
     redis: Redis | None = None,
     queue_name: str = JOB_QUEUE,
 ) -> bool:
-    """Return False for missing/unready work; propagate execution failures for now."""
+    """Return False for missing/unready work; persist handler failures and continue."""
     with Session(engine) as session, session.begin():
         step = session.get(StepRun, step_run_id)
         if step is None or step.status != StepStatus.READY:
@@ -96,10 +97,15 @@ def execute_step(
 
     # Commit the claim and release the connection before invoking user code.
     logger.info(json.dumps({"event": "step_started", **log_fields}))
-    output = handler(context)
-    json.dumps(
-        output, allow_nan=False
-    )  # Fail clearly before attempting to persist non-JSON output.
+    try:
+        output = handler(context)
+        json.dumps(output, allow_nan=False)
+    except Exception as exc:  # noqa: BLE001 -- isolate arbitrary user handlers
+        status = record_failure(engine, workflow_run_id, step_run_id, exc)
+        logger.warning(
+            json.dumps({"event": "step_failed", "status": status.value, **log_fields})
+        )
+        return True
     with Session(engine) as session, session.begin():
         # Serialize completion for this run, not handler execution. The next
         # completion sees the previous one's committed prerequisite status.
@@ -116,6 +122,8 @@ def execute_step(
             .values(
                 status=StepStatus.COMPLETED,
                 output=output,
+                error=None,
+                next_retry_at=None,
                 completed_at=datetime.now(timezone.utc),
             )
         )
