@@ -1,4 +1,4 @@
-"""Execute one ready step. Dependency scheduling and recovery are later phases."""
+"""Execute a ready step and dispatch newly unlocked dependents."""
 
 import inspect
 import json
@@ -7,17 +7,29 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from uuid import UUID
 
+from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
+from app.db.connections import create_redis_client
 from app.models import StepDependency, StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from app.services.dependencies import unlock_dependents
+from app.services.queue import JOB_QUEUE, enqueue_steps
+from app.services.workflows import QueueDispatchError
 from app.workflows import Workflow
 
 logger = logging.getLogger(__name__)
 
 
 def execute_step(
-    engine: Engine, step_run_id: UUID, registry: Mapping[str, Workflow]
+    engine: Engine,
+    step_run_id: UUID,
+    registry: Mapping[str, Workflow],
+    *,
+    redis: Redis | None = None,
+    queue_name: str = JOB_QUEUE,
 ) -> bool:
     """Return False for missing/unready work; propagate execution failures for now."""
     with Session(engine) as session, session.begin():
@@ -80,6 +92,7 @@ def execute_step(
             "step_name": step.step_name,
             "attempt": step.attempt_count,
         }
+        workflow_run_id = run.id
 
     # Commit the claim and release the connection before invoking user code.
     logger.info(json.dumps({"event": "step_started", **log_fields}))
@@ -88,6 +101,15 @@ def execute_step(
         output, allow_nan=False
     )  # Fail clearly before attempting to persist non-JSON output.
     with Session(engine) as session, session.begin():
+        # Serialize completion for this run, not handler execution. The next
+        # completion sees the previous one's committed prerequisite status.
+        run = session.scalar(
+            select(WorkflowRun)
+            .where(WorkflowRun.id == workflow_run_id)
+            .with_for_update()
+        )
+        if run is None:
+            raise LookupError(f"Workflow run {workflow_run_id} no longer exists")
         completed = session.execute(
             update(StepRun)
             .where(StepRun.id == step_run_id, StepRun.status == StepStatus.RUNNING)
@@ -99,5 +121,21 @@ def execute_step(
         )
         if completed.rowcount != 1:
             raise RuntimeError(f"Step {step_run_id} is no longer RUNNING")
+        ready_ids = (
+            unlock_dependents(session, step_run_id)
+            if run.status == WorkflowStatus.RUNNING
+            else []
+        )
     logger.info(json.dumps({"event": "step_completed", **log_fields}))
+    if ready_ids:
+        owned_redis = redis is None
+        try:
+            if redis is None:
+                redis = create_redis_client(Settings())
+            enqueue_steps(redis, ready_ids, queue_name=queue_name)
+        except (RedisError, ValueError) as exc:
+            raise QueueDispatchError(workflow_run_id, ready_ids) from exc
+        finally:
+            if owned_redis and redis is not None:
+                redis.close()
     return True

@@ -1,8 +1,8 @@
 # Relay
 
 Relay is a fault-tolerant workflow runtime for long-running AI and backend tasks.
-Phases 1–6 provide workflow definitions, persistent runs, a Redis queue of ready
-steps, and a basic worker that executes individual steps.
+Phases 1–7 provide workflow definitions, persistent runs, a Redis queue of ready
+steps, and a worker that executes steps and unlocks their dependents.
 
 ## Run
 
@@ -235,8 +235,9 @@ Inspect persisted step states and output:
 docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, step_name, status, output FROM step_runs ORDER BY created_at, step_name;'
 ```
 
-The `fetch` step becomes `COMPLETED` with `{"company": "Stripe"}`. `report` remains
-`PENDING`: automatic downstream scheduling is Phase 7. The workflow becomes
+The `fetch` step becomes `COMPLETED` with `{"company": "Stripe"}`. `report` becomes
+`READY` and is automatically queued. Run the `--once` command again to execute
+`report`, or use the continuous worker to execute both. The workflow becomes
 `RUNNING`; final workflow completion is not calculated by this basic worker yet.
 
 Run continuously with `docker compose exec api python -m app.workers.worker`, or
@@ -265,4 +266,23 @@ be synchronous and return JSON-compatible values (including `None`).
 
 Run `docker compose exec api pytest --integration` for worker execution,
 dependency context, output persistence, duplicate claims, and failure-boundary
-tests. Phase 7 will unlock and queue downstream steps after prerequisites finish.
+tests.
+
+## Dependency resolution
+
+Completing a step saves its output and changes eligible dependents from `PENDING`
+to `READY` in the same database transaction. All persisted prerequisites must be
+`COMPLETED`; only newly transitioned step IDs are dispatched to Redis after commit.
+Consequently a continuous worker can execute `A → B → C` without manual updates.
+
+Completion transactions briefly lock the workflow row. This ensures concurrent
+prerequisite completions see one another's results. The `PENDING` condition
+prevents duplicate readiness transitions; the lock does not cover handler execution.
+
+If Redis dispatch fails, the completed step stays completed and its dependents
+stay ready. `QueueDispatchError` exposes the run ID and newly ready IDs for retry
+with `enqueue_steps`; retry dispatch without rerunning the completed handler.
+The existing commit-to-queue crash window remains, with no automatic reconciliation.
+
+Phase 8 will exercise parallel branches with multiple worker processes. Workflow
+completion, handler retries, leases, and recovery remain outside this phase.

@@ -24,7 +24,7 @@ def run_once(
     step_id = dequeue_step(redis, queue_name=queue_name)
     if step_id is None:
         return False
-    return execute_step(engine, step_id, registry)
+    return execute_step(engine, step_id, registry, redis=redis, queue_name=queue_name)
 
 
 def main() -> None:

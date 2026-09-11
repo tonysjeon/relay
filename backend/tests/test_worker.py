@@ -64,10 +64,11 @@ def test_worker_executes_queued_root_and_persists_output(database, queue):
             "step_outputs": {},
         }
         assert steps["fetch"].started_at <= steps["fetch"].completed_at
-        assert steps["report"].status == StepStatus.PENDING
+        assert steps["report"].status == StepStatus.READY
         assert steps["report"].attempt_count == 0
-    assert client.llen(key) == 0
+    assert client.llen(key) == 1
     enqueue_step(client, ids["fetch"], queue_name=key)
+    assert run_once(database, client, {workflow.name: workflow}, queue_name=key)
     assert not run_once(database, client, {workflow.name: workflow}, queue_name=key)
     assert handler.call_count == 1
 
@@ -90,10 +91,14 @@ def test_worker_builds_context_from_persisted_dependencies(database, queue):
         database, queue, lambda ctx: {"source": ctx["workflow_input"]}, downstream=True
     )
     registry = {workflow.name: workflow}
-    assert execute_step(database, ids["fetch"], registry)
+    assert execute_step(
+        database, ids["fetch"], registry, redis=queue[0], queue_name=queue[1]
+    )
     with Session(database) as session, session.begin():
         session.get(StepRun, ids["report"]).status = StepStatus.READY
-    assert execute_step(database, ids["report"], registry)
+    assert execute_step(
+        database, ids["report"], registry, redis=queue[0], queue_name=queue[1]
+    )
     with Session(database) as session:
         step = session.get(StepRun, ids["report"])
         assert step.output == {
