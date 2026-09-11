@@ -2,6 +2,9 @@
 
 Use these conventions for every commit, branch, and pull request.
 
+Describe concrete changes in commits and pull requests. Do not mention development
+phases or phase numbers in their titles, subjects, or descriptions.
+
 ## Commits
 
 - One-line subject only
