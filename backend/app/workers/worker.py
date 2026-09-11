@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.db.connections import create_database_engine, create_redis_client
 from app.services.execution import execute_step
 from app.services.queue import JOB_QUEUE, dequeue_step
+from app.services.workers import worker_heartbeat
 from app.workers.registry import workflow_registry
 from app.workflows import Workflow
 
@@ -40,14 +41,15 @@ def main() -> None:
     try:
         redis = create_redis_client(settings)
         try:
-            while True:
-                executed = run_once(
-                    engine, redis, workflow_registry, queue_name=args.queue
-                )
-                if args.once:
-                    return
-                if not executed:
-                    time.sleep(0.5)
+            with worker_heartbeat(engine, settings.worker_heartbeat_seconds):
+                while True:
+                    executed = run_once(
+                        engine, redis, workflow_registry, queue_name=args.queue
+                    )
+                    if args.once:
+                        return
+                    if not executed:
+                        time.sleep(0.5)
         except KeyboardInterrupt:
             pass
         finally:
