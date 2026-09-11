@@ -1,5 +1,5 @@
 """Public entry point for creating a workflow run."""
 
-from app.services.workflows import run
+from app.services.workflows import QueueDispatchError, run
 
-__all__ = ["run"]
+__all__ = ["QueueDispatchError", "run"]

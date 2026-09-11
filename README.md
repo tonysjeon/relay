@@ -1,7 +1,8 @@
 # Relay
 
 Relay is a fault-tolerant workflow runtime for long-running AI and backend tasks.
-Phases 1–4 provide local infrastructure, workflow definitions, and persistent runs.
+Phases 1–5 provide local infrastructure, workflow definitions, persistent runs,
+and a Redis queue of ready steps.
 Workflow execution comes in later phases.
 
 ## Run
@@ -165,15 +166,16 @@ print(run_id)
 ```
 
 `relay.run` validates the graph before accessing PostgreSQL, then commits the
-workflow, all steps, and dependency edges in one transaction. It returns a UUID
-only after the transaction commits. Errors propagate and roll back the entire
-creation. Each call creates a separate run, even for the same definition/input.
+workflow, all steps, and dependency edges in one transaction. After commit, it
+enqueues all root step IDs in Redis and returns the run UUID. Database errors
+roll back the entire creation. Each call creates a separate run, even for the
+same definition/input. Queue failures have separate semantics described below.
 
 The workflow starts `PENDING`. Steps without dependencies start `READY`; other
 steps start `PENDING`. Retry limits are copied from the definitions, attempt
 counts start at zero, and outputs and execution timestamps remain unset.
 The input is stored on the workflow; per-step context is constructed in a later
-phase. No handlers execute and no Redis jobs are queued yet.
+phase. No handlers execute yet.
 
 By default the entry point uses `DATABASE_URL` and disposes its engine afterward.
 An application can supply a reusable SQLAlchemy engine with
@@ -182,4 +184,37 @@ Use `get_workflow_run` from the persistence example to inspect the saved graph.
 
 Run `docker compose exec api pytest --integration` to test creation, initial
 states, independent runs, and transaction rollback against PostgreSQL.
-Phase 5 adds Redis queueing for ready steps.
+
+## Redis job queue
+
+The FIFO list `relay:jobs` contains only messages shaped like
+`{"step_run_id": "uuid"}`. Workflow input and outputs stay in PostgreSQL.
+Creation uses one `RPUSH` to append every initial ready step after the database
+commit, so queued IDs refer to committed records. Dependent steps are not queued.
+
+`app.services.queue` exposes `enqueue_step(redis, step_run_id)`,
+`enqueue_steps(redis, step_run_ids)`, and `dequeue_step(redis)`. Dequeue uses
+nonblocking `LPOP` and returns a UUID or `None` for an empty queue. A malformed
+message is removed and raises `ValueError`. Optional `queue_name` overrides the
+default key on these helpers and on `relay.run` (useful for isolated tests).
+
+`relay.run` uses `REDIS_URL` by default and closes the client afterward. Supply
+`redis=client` to reuse a caller-owned connection. Redis errors after commit raise
+`relay.QueueDispatchError`, containing `run_id` and `step_run_ids`. The saved run
+and ready steps remain in PostgreSQL. After Redis recovers, retry dispatch with
+`enqueue_steps(client, error.step_run_ids)` rather than calling `relay.run` again.
+
+PostgreSQL commit and Redis enqueue are separate operations. A process crash
+between them can leave ready steps unqueued; this phase has no automatic
+reconciliation. An uncertain Redis response may mean a retry creates duplicate
+messages. Atomic work claiming will handle duplicates in the worker phases.
+Dequeue currently removes a job; acknowledgements and worker recovery come later.
+
+Inspect without consuming jobs:
+
+```bash
+docker compose exec redis redis-cli LLEN relay:jobs
+```
+
+Use `docker compose exec redis redis-cli LRANGE relay:jobs 0 -1` to see IDs.
+Phase 6 adds the basic worker that consumes and executes these jobs.
