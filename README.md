@@ -442,3 +442,16 @@ window also remains. Existing `RUNNING` records created by older, unleased worke
 have no expiry and require manual inspection; restart old worker processes before
 using recovery. The test suite includes real process termination, lease renewal,
 stale-result rejection, concurrent recovery scans, and retry exhaustion.
+
+## Handler idempotency
+
+Every handler receives `ctx["idempotency_key"]`, formatted as
+`<workflow_run_id>:<step_name>`. It stays the same across handler retries and
+worker recovery, and differs for other steps and new runs. Relay also saves the
+key in the step's execution input.
+
+Pass this key to external services that support idempotency, for example
+`payments.charge(..., idempotency_key=ctx["idempotency_key"])`. Relay may execute a
+handler more than once; the key alone cannot prevent duplicate side effects.
+The external service must enforce deduplication, or your integration must store
+and check the key transactionally with its side effect.
