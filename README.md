@@ -1,9 +1,8 @@
 # Relay
 
 Relay is a fault-tolerant workflow runtime for long-running AI and backend tasks.
-Phases 1–5 provide local infrastructure, workflow definitions, persistent runs,
-and a Redis queue of ready steps.
-Workflow execution comes in later phases.
+Phases 1–6 provide workflow definitions, persistent runs, a Redis queue of ready
+steps, and a basic worker that executes individual steps.
 
 ## Run
 
@@ -217,4 +216,53 @@ docker compose exec redis redis-cli LLEN relay:jobs
 ```
 
 Use `docker compose exec redis redis-cli LRANGE relay:jobs 0 -1` to see IDs.
-Phase 6 adds the basic worker that consumes and executes these jobs.
+## Basic worker
+
+The worker looks up Python handlers by persisted workflow name and step name in
+`backend/app/workers/registry.py`. Producers and workers must use the same
+definitions. The registry includes a small `basic` workflow with `fetch → report`.
+
+With the stack running and migrations applied, create a run and consume one job:
+
+```bash
+docker compose exec api python -c 'from app import relay; from app.workers.registry import basic_workflow; print(relay.run(basic_workflow, {"company": "Stripe"}))'
+docker compose exec api python -m app.workers.worker --once
+```
+
+Inspect persisted step states and output:
+
+```bash
+docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, step_name, status, output FROM step_runs ORDER BY created_at, step_name;'
+```
+
+The `fetch` step becomes `COMPLETED` with `{"company": "Stripe"}`. `report` remains
+`PENDING`: automatic downstream scheduling is Phase 7. The workflow becomes
+`RUNNING`; final workflow completion is not calculated by this basic worker yet.
+
+Run continuously with `docker compose exec api python -m app.workers.worker`, or
+run `python -m app.workers.worker` from `backend/` using host-accessible database
+and Redis URLs. The idle loop polls every half second. Ctrl-C closes connections.
+`--once` consumes at most one message and exits, including when the queue is empty;
+`--queue NAME` selects a different Redis list. No separate Compose worker service
+is required to run this command.
+
+Before executing, the worker resolves a synchronous handler and checks persisted
+prerequisites. It atomically claims a `READY` step, increments its attempt count,
+and commits `RUNNING` before invoking user code. No database transaction is held
+while the handler runs. Context contains `workflow_input` and direct dependency
+`step_outputs`; it is also saved as the step input. JSON-serializable output and
+completion time are persisted before the step becomes `COMPLETED`.
+
+Duplicate messages for already claimed/completed steps and messages for missing
+steps are skipped. Terminal workflows are not executed. Logs include event,
+workflow/step IDs, step name, and attempt count.
+
+This phase deliberately fails fast on handler, registry, queue, or persistence
+errors. A failed execution can leave a step `RUNNING` after its queue message has
+been consumed; there are no retries, leases, or abandoned-step recovery yet.
+Inspect the traceback and database state before manually retrying. Handlers must
+be synchronous and return JSON-compatible values (including `None`).
+
+Run `docker compose exec api pytest --integration` for worker execution,
+dependency context, output persistence, duplicate claims, and failure-boundary
+tests. Phase 7 will unlock and queue downstream steps after prerequisites finish.
