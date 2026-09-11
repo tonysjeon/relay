@@ -173,8 +173,8 @@ same definition/input. Queue failures have separate semantics described below.
 The workflow starts `PENDING`. Steps without dependencies start `READY`; other
 steps start `PENDING`. Retry limits are copied from the definitions, attempt
 counts start at zero, and outputs and execution timestamps remain unset.
-The input is stored on the workflow; per-step context is constructed in a later
-phase. No handlers execute yet.
+The input is stored on the workflow; the worker constructs per-step context when
+it claims a job. Creation itself does not execute handlers.
 
 By default the entry point uses `DATABASE_URL` and disposes its engine afterward.
 An application can supply a reusable SQLAlchemy engine with
@@ -204,9 +204,9 @@ and ready steps remain in PostgreSQL. After Redis recovers, retry dispatch with
 `enqueue_steps(client, error.step_run_ids)` rather than calling `relay.run` again.
 
 PostgreSQL commit and Redis enqueue are separate operations. A process crash
-between them can leave ready steps unqueued; this phase has no automatic
+between them can leave ready steps unqueued; there is no automatic
 reconciliation. An uncertain Redis response may mean a retry creates duplicate
-messages. Atomic work claiming will handle duplicates in the worker phases.
+messages. Atomic work claiming prevents concurrent duplicate execution.
 Dequeue currently removes a job; acknowledgements and worker recovery come later.
 
 Inspect without consuming jobs:
@@ -258,11 +258,12 @@ Duplicate messages for already claimed/completed steps and messages for missing
 steps are skipped. Terminal workflows are not executed. Logs include event,
 workflow/step IDs, step name, and attempt count.
 
-This phase deliberately fails fast on handler, registry, queue, or persistence
-errors. A failed execution can leave a step `RUNNING` after its queue message has
-been consumed; there are no retries, leases, or abandoned-step recovery yet.
-Inspect the traceback and database state before manually retrying. Handlers must
-be synchronous and return JSON-compatible values (including `None`).
+Handler exceptions and non-JSON outputs are persisted without stopping the worker.
+Steps with attempts remaining become `RETRYING`; exhausted steps become `FAILED`
+and fail the workflow. Registry, queue, or database errors still propagate. A
+process crash or infrastructure failure can leave a consumed step `RUNNING`;
+leases and abandoned-step recovery are not implemented yet. Handlers must be
+synchronous and return JSON-compatible values (including `None`).
 
 Run `docker compose exec api pytest --integration` for worker execution,
 dependency context, output persistence, duplicate claims, and failure-boundary
@@ -284,7 +285,7 @@ stay ready. `QueueDispatchError` exposes the run ID and newly ready IDs for retr
 with `enqueue_steps`; retry dispatch without rerunning the completed handler.
 The existing commit-to-queue crash window remains, with no automatic reconciliation.
 
-Workflow completion, handler retries, leases, and recovery remain for later work.
+Workflow completion, leases, and abandoned-step recovery remain for later work.
 
 ## Run parallel branches
 
@@ -324,3 +325,45 @@ registration is implemented yet; these are ordinary independent Python processes
 controlled branch release: both completion orders, overlapping execution, no
 premature join, and duplicate branch messages executing only once. Each test uses
 an isolated queue and temporary database and stops its worker processes afterward.
+
+## Failure handling and retries
+
+Set `retries` when defining a step. It counts additional attempts, so `retries=2`
+allows three handler invocations. The worker increments `attempt_count` when it
+claims work, saves the exception type/message on failure, and keeps dependent
+steps blocked. Exhausting attempts marks both the step and workflow `FAILED`.
+A successful retry saves output, clears the latest error and retry deadline,
+and unlocks eligible dependents normally. Error history is not stored yet.
+
+Retry deadlines are persisted in `next_retry_at`, with delays of 1, 2, 4, 8, 16,
+32, then 60 seconds. Workers do not sleep for retries. Run a scheduler alongside
+the worker, in another terminal:
+
+```bash
+docker compose exec api python -m app.workers.scheduler
+```
+
+The scheduler scans every two seconds by default, so dispatch occurs on the first
+scan at or after the deadline. Set `RETRY_SCAN_INTERVAL_SECONDS` in `.env` and
+recreate the API container to change it. `--once` performs one scan;
+`--queue NAME` selects the destination Redis list. A scheduler restart reads the
+existing database deadlines. Multiple schedulers use workflow locks and conditional
+updates to avoid dispatching the same retry twice.
+
+The scheduler only handles due `RETRYING` steps on `RUNNING` workflows. It scans
+up to 100 eligible workflows per iteration and preserves attempt counts until a
+worker claims the next attempt. Scheduler and worker must use the same database,
+Redis instance, and queue. When using custom queues, use a separate database per
+queue: queue routing is not stored on workflow records.
+
+Inspect the current failure and retry state:
+
+```bash
+docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, step_name, status, attempt_count, max_attempts, next_retry_at, error FROM step_runs ORDER BY created_at DESC LIMIT 12;'
+```
+
+If retry dispatch fails after commit, `QueueDispatchError` identifies the saved
+run and ready steps for manual dispatch retry. The database-to-Redis crash window
+still applies; the scheduler does not automatically recover already `READY` jobs.
+Use Ctrl-C to stop the scheduler. Run `docker compose exec api pytest --integration`
+to verify failure isolation, retry timing, exhaustion, and scheduler restarts.

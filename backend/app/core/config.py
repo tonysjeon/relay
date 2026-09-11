@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,3 +7,4 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://relay:relay@localhost:5432/relay"
     redis_url: str = "redis://localhost:6379/0"
+    retry_scan_interval_seconds: float = Field(default=2, gt=0, allow_inf_nan=False)
