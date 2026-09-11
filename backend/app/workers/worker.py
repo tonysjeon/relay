@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.db.connections import create_database_engine, create_redis_client
 from app.services.execution import execute_step
 from app.services.queue import JOB_QUEUE, dequeue_step
+from app.services.workers import worker_heartbeat
 from app.workers.registry import workflow_registry
 from app.workflows import Workflow
 
@@ -20,11 +21,21 @@ def run_once(
     registry: Mapping[str, Workflow],
     *,
     queue_name: str = JOB_QUEUE,
+    worker_id: str | None = None,
+    lease_seconds: float | None = None,
 ) -> bool:
     step_id = dequeue_step(redis, queue_name=queue_name)
     if step_id is None:
         return False
-    return execute_step(engine, step_id, registry, redis=redis, queue_name=queue_name)
+    return execute_step(
+        engine,
+        step_id,
+        registry,
+        redis=redis,
+        queue_name=queue_name,
+        worker_id=worker_id,
+        lease_seconds=lease_seconds,
+    )
 
 
 def main() -> None:
@@ -40,14 +51,22 @@ def main() -> None:
     try:
         redis = create_redis_client(settings)
         try:
-            while True:
-                executed = run_once(
-                    engine, redis, workflow_registry, queue_name=args.queue
-                )
-                if args.once:
-                    return
-                if not executed:
-                    time.sleep(0.5)
+            with worker_heartbeat(
+                engine, settings.worker_heartbeat_seconds
+            ) as worker_id:
+                while True:
+                    executed = run_once(
+                        engine,
+                        redis,
+                        workflow_registry,
+                        queue_name=args.queue,
+                        worker_id=worker_id,
+                        lease_seconds=settings.step_lease_seconds,
+                    )
+                    if args.once:
+                        return
+                    if not executed:
+                        time.sleep(0.5)
         except KeyboardInterrupt:
             pass
         finally:

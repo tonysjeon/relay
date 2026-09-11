@@ -207,7 +207,9 @@ PostgreSQL commit and Redis enqueue are separate operations. A process crash
 between them can leave ready steps unqueued; there is no automatic
 reconciliation. An uncertain Redis response may mean a retry creates duplicate
 messages. Atomic work claiming prevents concurrent duplicate execution.
-Dequeue currently removes a job; acknowledgements and worker recovery come later.
+Dequeue removes a job. Once a worker commits its claim, its lease enables recovery
+if it disappears. A crash between dequeue and claim can still lose that queue
+message; recovery of unclaimed `READY` jobs is not implemented.
 
 Inspect without consuming jobs:
 
@@ -238,14 +240,14 @@ docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, 
 The `fetch` step becomes `COMPLETED` with `{"company": "Stripe"}`. `report` becomes
 `READY` and is automatically queued. Run the `--once` command again to execute
 `report`, or use the continuous worker to execute both. The workflow becomes
-`RUNNING`; final workflow completion is not calculated by this basic worker yet.
+`RUNNING` on the first claim and `COMPLETED` when all its steps succeed.
 
 Run continuously with `docker compose exec api python -m app.workers.worker`, or
 run `python -m app.workers.worker` from `backend/` using host-accessible database
 and Redis URLs. The idle loop polls every half second. Ctrl-C closes connections.
 `--once` consumes at most one message and exits, including when the queue is empty;
-`--queue NAME` selects a different Redis list. No separate Compose worker service
-is required to run this command.
+`--queue NAME` selects a different Redis list. The optional Compose runtime profile
+below runs two workers and a scheduler in separate containers.
 
 Before executing, the worker resolves a synchronous handler and checks persisted
 prerequisites. It atomically claims a `READY` step, increments its attempt count,
@@ -261,9 +263,9 @@ workflow/step IDs, step name, and attempt count.
 Handler exceptions and non-JSON outputs are persisted without stopping the worker.
 Steps with attempts remaining become `RETRYING`; exhausted steps become `FAILED`
 and fail the workflow. Registry, queue, or database errors still propagate. A
-process crash or infrastructure failure can leave a consumed step `RUNNING`;
-leases and abandoned-step recovery are not implemented yet. Handlers must be
-synchronous and return JSON-compatible values (including `None`).
+process crash or infrastructure failure can leave a claimed step `RUNNING` until
+its lease expires and the scheduler recovers it. Handlers must be synchronous and
+return JSON-compatible values (including `None`).
 
 Run `docker compose exec api pytest --integration` for worker execution,
 dependency context, output persistence, duplicate claims, and failure-boundary
@@ -285,7 +287,8 @@ stay ready. `QueueDispatchError` exposes the run ID and newly ready IDs for retr
 with `enqueue_steps`; retry dispatch without rerunning the completed handler.
 The existing commit-to-queue crash window remains, with no automatic reconciliation.
 
-Workflow completion, leases, and abandoned-step recovery remain for later work.
+Workflow status is updated in the same transaction: permanent failure fails the
+run, and all steps succeeding completes it. Failed/cancelled runs are never revived.
 
 ## Run parallel branches
 
@@ -309,7 +312,7 @@ docker compose exec api python -c 'from app import relay; from app.workers.paral
 Both workers share the queue. Expect `fetch` to finish first, the two analysis
 steps to run in different processes at overlapping times, and `combine` to start
 only after both finish. Its output should be `{"company": "Stripe", "score": 85.0}`.
-The workflow row currently remains `RUNNING` even after all its steps complete.
+The workflow row becomes `COMPLETED` after the final step succeeds.
 
 Inspect step output and execution times (filter by the printed `workflow_run_id`
 when inspecting a particular run):
@@ -318,8 +321,8 @@ when inspecting a particular run):
 docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, step_name, status, attempt_count, started_at, completed_at, output FROM step_runs ORDER BY created_at DESC, step_name LIMIT 12;'
 ```
 
-Stop each worker with Ctrl-C after the run finishes. No heartbeat/worker table
-registration is implemented yet; these are ordinary independent Python processes.
+Stop each worker with Ctrl-C after the run finishes. Each process registers a
+unique worker ID; `/workers` reports its heartbeat and current health.
 
 `docker compose exec api pytest --integration` includes process-level tests with
 controlled branch release: both completion orders, overlapping execution, no
@@ -350,7 +353,7 @@ recreate the API container to change it. `--once` performs one scan;
 existing database deadlines. Multiple schedulers use workflow locks and conditional
 updates to avoid dispatching the same retry twice.
 
-The scheduler only handles due `RETRYING` steps on `RUNNING` workflows. It scans
+The retry scan handles due `RETRYING` steps on `RUNNING` workflows. It scans
 up to 100 eligible workflows per iteration and preserves attempt counts until a
 worker claims the next attempt. Scheduler and worker must use the same database,
 Redis instance, and queue. When using custom queues, use a separate database per
@@ -367,3 +370,75 @@ run and ready steps for manual dispatch retry. The database-to-Redis crash windo
 still applies; the scheduler does not automatically recover already `READY` jobs.
 Use Ctrl-C to stop the scheduler. Run `docker compose exec api pytest --integration`
 to verify failure isolation, retry timing, exhaustion, and scheduler restarts.
+
+## Worker heartbeats and crash recovery
+
+Workers register as `worker-<hostname>-<uuid>` and update their heartbeat every
+10 seconds, including while handlers run. `GET /workers` reports IDs, timestamps,
+and `healthy`/`unhealthy` status; stopped workers become unhealthy after 30 seconds
+by default. Historical worker rows remain available for inspection.
+
+A claim sets a 30-second lease and records its worker and attempt. A background
+thread renews the lease every third of its duration. Renewal, completion, and
+failure writes must match the current owner and attempt and have an unexpired
+lease. Late results from an old attempt cannot overwrite a replacement's state.
+Database time is used for lease expiry checks.
+
+The scheduler checks expired leases every five seconds. If attempts remain, it
+clears the lease, marks the step `READY`, and queues its ID after commit. Otherwise
+it marks the step and workflow `FAILED`. Attempts count actual claims: a killed
+first execution followed by a replacement claim has `attempt_count=2`, not 3.
+Worker health is informational; the step lease determines whether work is abandoned.
+
+Configuration in `.env`:
+
+```env
+WORKER_HEARTBEAT_SECONDS=10
+WORKER_TIMEOUT_SECONDS=30
+STEP_LEASE_SECONDS=30
+LEASE_SCAN_INTERVAL_SECONDS=5
+```
+
+Keep the heartbeat interval comfortably below the worker timeout. Restart workers
+and the API after changing configuration. Retry and lease scans have independent
+intervals; scheduler `--once` performs both scans.
+
+After starting the base stack and applying migrations, start two workers and
+the scheduler:
+
+```bash
+docker compose --profile runtime up --build -d
+docker compose logs -f worker-1 worker-2 scheduler
+```
+
+In another terminal, submit a workflow with a 30-second analysis step:
+
+```bash
+docker compose exec api python -c 'from app import relay; from app.workers.recovery_demo import recovery_workflow; print(relay.run(recovery_workflow, {"company": "Stripe"}))'
+```
+
+When logs show `long_analysis` starting, kill the service that owns it. Substitute
+`worker-2` if that service claimed the step:
+
+```bash
+docker compose kill --signal SIGKILL worker-1
+```
+
+After lease expiry and the next scan, the surviving worker should execute
+`long_analysis` on attempt 2, then `report`. Allow another 30 seconds for the
+replacement analysis itself. All steps and the workflow should become `COMPLETED`.
+Inspect statuses, owners, attempts, and outputs using the returned run UUID:
+
+```bash
+docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, step_name, status, attempt_count, lease_owner, lease_expires_at, output FROM step_runs ORDER BY created_at DESC, step_name LIMIT 12;'
+```
+
+Restart a killed service with `docker compose start worker-1`. Stop the runtime
+services with `docker compose stop worker-1 worker-2 scheduler`.
+
+Lease fencing protects database state; it cannot undo external side effects from
+a handler that continues after losing its lease. The database-to-Redis dispatch
+window also remains. Existing `RUNNING` records created by older, unleased workers
+have no expiry and require manual inspection; restart old worker processes before
+using recovery. The test suite includes real process termination, lease renewal,
+stale-result rejection, concurrent recovery scans, and retry exhaustion.
