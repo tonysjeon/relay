@@ -4,12 +4,12 @@ import inspect
 import json
 import logging
 from collections.abc import Mapping
-from datetime import datetime, timezone
-from uuid import UUID
+from datetime import datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy import Engine, select, update
+from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -17,6 +17,7 @@ from app.db.connections import create_redis_client
 from app.models import StepDependency, StepRun, StepStatus, WorkflowRun, WorkflowStatus
 from app.services.dependencies import unlock_dependents
 from app.services.failures import record_failure
+from app.services.leases import keep_lease, lease_conditions
 from app.services.queue import JOB_QUEUE, enqueue_steps
 from app.services.workflows import QueueDispatchError
 from app.workflows import Workflow
@@ -31,13 +32,27 @@ def execute_step(
     *,
     redis: Redis | None = None,
     queue_name: str = JOB_QUEUE,
+    worker_id: str | None = None,
+    lease_seconds: float | None = None,
 ) -> bool:
     """Return False for missing/unready work; persist handler failures and continue."""
+    owner = worker_id if worker_id is not None else f"worker-inline-{uuid4()}"
+    duration = (
+        lease_seconds if lease_seconds is not None else Settings().step_lease_seconds
+    )
+    if duration <= 0:
+        raise ValueError("lease_seconds must be positive")
     with Session(engine) as session, session.begin():
         step = session.get(StepRun, step_run_id)
         if step is None or step.status != StepStatus.READY:
             return False
-        run = session.get(WorkflowRun, step.workflow_run_id)
+        run = session.scalar(
+            select(WorkflowRun)
+            .where(WorkflowRun.id == step.workflow_run_id)
+            .with_for_update()
+        )
+        if run is None:
+            return False
         if run.status not in (WorkflowStatus.PENDING, WorkflowStatus.RUNNING):
             return False
         workflow = registry.get(run.workflow_name)
@@ -73,9 +88,11 @@ def execute_step(
                 started_at=datetime.now(timezone.utc),
                 attempt_count=StepRun.attempt_count + 1,
                 input=context,
+                lease_owner=owner,
+                lease_expires_at=func.clock_timestamp() + timedelta(seconds=duration),
             )
-            .returning(StepRun.id)
-        ).scalar_one_or_none()
+            .returning(StepRun.id, StepRun.attempt_count)
+        ).one_or_none()
         if claimed is None:
             return False
         session.execute(
@@ -91,50 +108,72 @@ def execute_step(
             "workflow_run_id": str(run.id),
             "step_run_id": str(step.id),
             "step_name": step.step_name,
-            "attempt": step.attempt_count,
+            "attempt": claimed.attempt_count,
+            "worker_id": owner,
         }
         workflow_run_id = run.id
+        attempt = claimed.attempt_count
 
     # Commit the claim and release the connection before invoking user code.
     logger.info(json.dumps({"event": "step_started", **log_fields}))
-    try:
-        output = handler(context)
-        json.dumps(output, allow_nan=False)
-    except Exception as exc:  # noqa: BLE001 -- isolate arbitrary user handlers
-        status = record_failure(engine, workflow_run_id, step_run_id, exc)
-        logger.warning(
-            json.dumps({"event": "step_failed", "status": status.value, **log_fields})
-        )
-        return True
-    with Session(engine) as session, session.begin():
-        # Serialize completion for this run, not handler execution. The next
-        # completion sees the previous one's committed prerequisite status.
-        run = session.scalar(
-            select(WorkflowRun)
-            .where(WorkflowRun.id == workflow_run_id)
-            .with_for_update()
-        )
-        if run is None:
-            raise LookupError(f"Workflow run {workflow_run_id} no longer exists")
-        completed = session.execute(
-            update(StepRun)
-            .where(StepRun.id == step_run_id, StepRun.status == StepStatus.RUNNING)
-            .values(
-                status=StepStatus.COMPLETED,
-                output=output,
-                error=None,
-                next_retry_at=None,
-                completed_at=datetime.now(timezone.utc),
+    with keep_lease(engine, step_run_id, owner, attempt, duration) as lost:
+        try:
+            output = handler(context)
+            json.dumps(output, allow_nan=False)
+        except Exception as exc:  # noqa: BLE001 -- isolate arbitrary user handlers
+            if lost.is_set():
+                return False
+            status = record_failure(
+                engine,
+                workflow_run_id,
+                step_run_id,
+                exc,
+                worker_id=owner,
+                attempt=attempt,
             )
-        )
-        if completed.rowcount != 1:
-            raise RuntimeError(f"Step {step_run_id} is no longer RUNNING")
-        ready_ids = (
-            unlock_dependents(session, step_run_id)
-            if run.status == WorkflowStatus.RUNNING
-            else []
-        )
-    logger.info(json.dumps({"event": "step_completed", **log_fields}))
+            if status is None:
+                return False
+            logger.warning(
+                json.dumps(
+                    {"event": "step_failed", "status": status.value, **log_fields}
+                )
+            )
+            return True
+        if lost.is_set():
+            logger.warning(json.dumps({"event": "lease_lost", **log_fields}))
+            return False
+        with Session(engine) as session, session.begin():
+            # Serialize completion for this run, not handler execution. The next
+            # completion sees the previous one's committed prerequisite status.
+            run = session.scalar(
+                select(WorkflowRun)
+                .where(WorkflowRun.id == workflow_run_id)
+                .with_for_update()
+            )
+            if run is None:
+                raise LookupError(f"Workflow run {workflow_run_id} no longer exists")
+            completed = session.execute(
+                update(StepRun)
+                .where(*lease_conditions(step_run_id, owner, attempt))
+                .values(
+                    status=StepStatus.COMPLETED,
+                    output=output,
+                    error=None,
+                    next_retry_at=None,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    completed_at=datetime.now(timezone.utc),
+                )
+            )
+            if completed.rowcount != 1:
+                logger.warning(json.dumps({"event": "lease_lost", **log_fields}))
+                return False
+            ready_ids = (
+                unlock_dependents(session, step_run_id)
+                if run.status == WorkflowStatus.RUNNING
+                else []
+            )
+        logger.info(json.dumps({"event": "step_completed", **log_fields}))
     if ready_ids:
         owned_redis = redis is None
         try:

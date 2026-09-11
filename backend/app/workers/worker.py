@@ -21,11 +21,21 @@ def run_once(
     registry: Mapping[str, Workflow],
     *,
     queue_name: str = JOB_QUEUE,
+    worker_id: str | None = None,
+    lease_seconds: float | None = None,
 ) -> bool:
     step_id = dequeue_step(redis, queue_name=queue_name)
     if step_id is None:
         return False
-    return execute_step(engine, step_id, registry, redis=redis, queue_name=queue_name)
+    return execute_step(
+        engine,
+        step_id,
+        registry,
+        redis=redis,
+        queue_name=queue_name,
+        worker_id=worker_id,
+        lease_seconds=lease_seconds,
+    )
 
 
 def main() -> None:
@@ -41,10 +51,17 @@ def main() -> None:
     try:
         redis = create_redis_client(settings)
         try:
-            with worker_heartbeat(engine, settings.worker_heartbeat_seconds):
+            with worker_heartbeat(
+                engine, settings.worker_heartbeat_seconds
+            ) as worker_id:
                 while True:
                     executed = run_once(
-                        engine, redis, workflow_registry, queue_name=args.queue
+                        engine,
+                        redis,
+                        workflow_registry,
+                        queue_name=args.queue,
+                        worker_id=worker_id,
+                        lease_seconds=settings.step_lease_seconds,
                     )
                     if args.once:
                         return
