@@ -1,8 +1,8 @@
 # Relay
 
 Relay is a fault-tolerant workflow runtime for long-running AI and backend tasks.
-Phases 1–7 provide workflow definitions, persistent runs, a Redis queue of ready
-steps, and a worker that executes steps and unlocks their dependents.
+Relay supports workflow definitions, persistent runs, a Redis queue of ready
+steps, and multiple workers that execute steps and unlock their dependents.
 
 ## Run
 
@@ -284,5 +284,43 @@ stay ready. `QueueDispatchError` exposes the run ID and newly ready IDs for retr
 with `enqueue_steps`; retry dispatch without rerunning the completed handler.
 The existing commit-to-queue crash window remains, with no automatic reconciliation.
 
-Phase 8 will exercise parallel branches with multiple worker processes. Workflow
-completion, handler retries, leases, and recovery remain outside this phase.
+Workflow completion, handler retries, leases, and recovery remain for later work.
+
+## Run parallel branches
+
+The registry also includes `parallel`: `fetch` unlocks `analyze_market` and
+`analyze_reviews`, and `combine` waits for both. The example branches pause for
+two and three seconds so their overlap is easy to observe. Their outputs include
+process IDs to identify which worker executed each branch.
+
+Start the continuous worker in **two separate terminals**:
+
+```bash
+docker compose exec api python -m app.workers.worker
+```
+
+In a third terminal, create a fresh run and note the printed UUID:
+
+```bash
+docker compose exec api python -c 'from app import relay; from app.workers.parallel import parallel_workflow; print(relay.run(parallel_workflow, {"company": "Stripe"}))'
+```
+
+Both workers share the queue. Expect `fetch` to finish first, the two analysis
+steps to run in different processes at overlapping times, and `combine` to start
+only after both finish. Its output should be `{"company": "Stripe", "score": 85.0}`.
+The workflow row currently remains `RUNNING` even after all its steps complete.
+
+Inspect step output and execution times (filter by the printed `workflow_run_id`
+when inspecting a particular run):
+
+```bash
+docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, step_name, status, attempt_count, started_at, completed_at, output FROM step_runs ORDER BY created_at DESC, step_name LIMIT 12;'
+```
+
+Stop each worker with Ctrl-C after the run finishes. No heartbeat/worker table
+registration is implemented yet; these are ordinary independent Python processes.
+
+`docker compose exec api pytest --integration` includes process-level tests with
+controlled branch release: both completion orders, overlapping execution, no
+premature join, and duplicate branch messages executing only once. Each test uses
+an isolated queue and temporary database and stops its worker processes afterward.
