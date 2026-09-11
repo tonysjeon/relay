@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.models import StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from app.services.retries import retry_delay
 
 
 def record_failure(
@@ -23,6 +24,12 @@ def record_failure(
         step.error = f"{type(error).__name__}: {error}".replace("\x00", "\\0")
         step.output = None
         step.completed_at = None if retryable else datetime.now(timezone.utc)
+        step.next_retry_at = (
+            datetime.now(timezone.utc)
+            + timedelta(seconds=retry_delay(step.attempt_count))
+            if retryable
+            else None
+        )
         if not retryable and run.status in (
             WorkflowStatus.PENDING,
             WorkflowStatus.RUNNING,

@@ -5,6 +5,10 @@ Use these conventions for every commit, branch, and pull request.
 Describe concrete changes in commits and pull requests. Do not mention development
 phases or phase numbers in their titles, subjects, or descriptions.
 
+Group closely related behavior in one pull request when it can be reviewed and
+tested together. Use multiple focused commits when useful; verify each increment
+before building on it.
+
 ## Commits
 
 - One-line subject only
