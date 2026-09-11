@@ -4,9 +4,10 @@ from uuid import UUID
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
-from app.models import StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from app.models import StepRun, StepStatus, WorkflowRun
 from app.services.leases import lease_conditions
 from app.services.retries import retry_delay
+from app.services.workflow_status import refresh_workflow_status
 
 
 def record_failure(
@@ -49,10 +50,5 @@ def record_failure(
         )
         if changed.rowcount != 1:
             return None
-        if not retryable and run.status in (
-            WorkflowStatus.PENDING,
-            WorkflowStatus.RUNNING,
-        ):
-            run.status = WorkflowStatus.FAILED
-            run.completed_at = datetime.now(timezone.utc)
+        refresh_workflow_status(session, run)
         return status

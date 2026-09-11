@@ -1,16 +1,17 @@
 services:
   api:
-    build: ./backend
-    environment:
+    build: &backend-build ./backend
+    environment: &backend-environment
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-relay}:${POSTGRES_PASSWORD:-relay}@postgres:5432/${POSTGRES_DB:-relay}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       RETRY_SCAN_INTERVAL_SECONDS: ${RETRY_SCAN_INTERVAL_SECONDS:-2}
       WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS:-10}
       WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-30}
       STEP_LEASE_SECONDS: ${STEP_LEASE_SECONDS:-30}
+      LEASE_SCAN_INTERVAL_SECONDS: ${LEASE_SCAN_INTERVAL_SECONDS:-5}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
-    depends_on:
+    depends_on: &backend-dependencies
       postgres:
         condition: service_healthy
       redis:
@@ -21,6 +22,22 @@ services:
       timeout: 12s
       retries: 3
       start_period: 10s
+  worker-1: &worker-service
+    build: *backend-build
+    environment: *backend-environment
+    depends_on: *backend-dependencies
+    profiles: [runtime]
+    command: ["python", "-m", "app.workers.worker"]
+    stop_signal: SIGINT
+  worker-2:
+    <<: *worker-service
+  scheduler:
+    build: *backend-build
+    environment: *backend-environment
+    depends_on: *backend-dependencies
+    profiles: [runtime]
+    command: ["python", "-m", "app.workers.scheduler"]
+    stop_signal: SIGINT
   postgres:
     image: postgres:16-alpine
     environment:

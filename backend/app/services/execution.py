@@ -19,6 +19,7 @@ from app.services.dependencies import unlock_dependents
 from app.services.failures import record_failure
 from app.services.leases import keep_lease, lease_conditions
 from app.services.queue import JOB_QUEUE, enqueue_steps
+from app.services.workflow_status import refresh_workflow_status
 from app.services.workflows import QueueDispatchError
 from app.workflows import Workflow
 
@@ -173,6 +174,7 @@ def execute_step(
                 if run.status == WorkflowStatus.RUNNING
                 else []
             )
+            refresh_workflow_status(session, run)
         logger.info(json.dumps({"event": "step_completed", **log_fields}))
     if ready_ids:
         owned_redis = redis is None
