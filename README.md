@@ -502,8 +502,10 @@ Create runs through `relay.run(...)`; workflow creation over HTTP is not include
 The runs page supports status filtering and pagination. Open a run to inspect
 its steps in dependency order, then select a step to see its attempts, current
 lease owner, timing, latest error, input, and output. The backend does not retain
-per-attempt history or a completed step's former lease owner. Refresh loads the
-latest state. Empty lists and API failures have explicit messages.
+per-attempt history or a completed step's former lease owner. The dashboard refreshes every two seconds while visible, preserving the selected
+step and the last successful data. Slow requests never overlap. Hidden tabs pause
+requests and refresh when visible again. Failed requests show a warning with the
+last update time and retry automatically; Refresh also retries immediately. Empty lists and API failures have explicit messages.
 
 For frontend development with the Docker API running:
 

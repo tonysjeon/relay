@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Detail, Run, Step } from "@/lib/types";
+import { startPolling } from "@/lib/polling";
 import { orderSteps } from "@/lib/steps";
 import { Icon } from "@/components/icons";
 
@@ -125,10 +126,9 @@ export function Dashboard({ runId }: { runId?: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updated, setUpdated] = useState<string | null>(null);
-  const [refresh, setRefresh] = useState(0);
-  const reload = useCallback(() => setRefresh((n) => n + 1), []);
+  const refreshRef = useRef<() => void>(() => {});
+  const reload = useCallback(() => refreshRef.current(), []);
   useEffect(() => {
-    const controller = new AbortController();
     setLoading(true);
     setError("");
     setRuns([]);
@@ -143,27 +143,41 @@ export function Dashboard({ runId }: { runId?: string }) {
     const url = runId
       ? `/api/workflows/${encodeURIComponent(runId)}`
       : `/api/workflows?${query}`;
-    fetch(url, { signal: controller.signal, cache: "no-store" })
-      .then(async (response) => {
+    const polling = startPolling(
+      async (signal) => {
+        const response = await fetch(url, { signal, cache: "no-store" });
         const data = await response.json();
         if (!response.ok)
           throw new Error(data.detail || "Unable to load workflows.");
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
         if (runId) setDetail({ ...data, steps: orderSteps(data.steps) });
         else {
           setRuns(data.slice(0, 20));
           setMore(data.length > 20);
         }
+        setError("");
+        setLoading(false);
         setUpdated(new Date().toLocaleTimeString());
-      })
-      .catch((err) => {
-        if (!controller.signal.aborted) setError(err.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [runId, filter, page, refresh]);
+      },
+      (error) => {
+        setError(
+          error instanceof Error ? error.message : "Unable to load workflows.",
+        );
+        setLoading(false);
+      },
+      () => document.visibilityState === "visible",
+    );
+    refreshRef.current = polling.refresh;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") polling.refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      polling.stop();
+      document.removeEventListener("visibilitychange", onVisible);
+      refreshRef.current = () => {};
+    };
+  }, [runId, filter, page]);
   const step = detail?.steps.find((s) => s.id === selected) || detail?.steps[0];
   return (
     <>
@@ -195,16 +209,20 @@ export function Dashboard({ runId }: { runId?: string }) {
           </button>
           <span className="update-line">
             {error
-              ? "Data unavailable"
+              ? updated
+                ? `Reconnecting · Last updated ${updated}`
+                : "Data unavailable"
               : updated
-                ? `Updated ${updated}`
+                ? `Updated ${updated} · Every 2s`
                 : "Connecting…"}
           </span>
         </div>
       </div>
       {error && (
         <div className="error-banner" role="alert">
-          <strong>Unable to load data</strong>
+          <strong>
+            {updated ? "Unable to refresh data" : "Unable to load data"}
+          </strong>
           <p>{error}</p>
           <button onClick={reload}>Try again</button>
         </div>
