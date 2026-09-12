@@ -526,3 +526,17 @@ Use Node.js 24 for frontend development. Validate with `npm test`,
 `frontend/`. Keep the existing backend integration suite as the execution-state
 contract. To manually verify the UI, open a completed run, select each step,
 filter to a status with no runs, and check an unknown run URL for the error state.
+
+## Example workflows
+
+See [the example walkthrough](examples/README.md) for linear, parallel, retry,
+and worker-crash demonstrations. Start one with:
+
+```bash
+docker compose exec api python -m app.examples linear
+```
+
+Use `parallel`, `retry`, or `crash` in place of `linear`. Start the Compose
+`runtime` profile to run the two workers and scheduler, and follow the printed
+run UUID in the dashboard. The retry example fails twice before succeeding on its
+third attempt. All examples run locally without API keys.
