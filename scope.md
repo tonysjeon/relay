@@ -1,5 +1,22 @@
 # Relay
 
+## Current product direction
+
+Relay is a runtime for running and tracking developers' own LLM workflows.
+The original V1 established persistence, retries, workers, recovery, and a dashboard
+with ordinary Python handlers. That foundation is now implemented.
+
+The next increment is reusable LLM observability: developers wrap their own model
+calls, and Relay records request/response data, provider, model, token counts,
+timing, and outcome under the responsible step attempt. This is independent of a
+particular provider or business workflow. Company research is not a product
+requirement.
+
+The original deferred list below is now a pool of future product work. This
+increment adds call tracking; MCP, human approvals, scheduling, and other items
+will be prioritized separately. Automatic provider instrumentation, pricing/cost
+estimation, and streaming event history are not part of this increment.
+
 ## Overview
 
 Relay is a lightweight, fault-tolerant workflow runtime for long-running AI and backend tasks.
@@ -71,7 +88,7 @@ Build these features:
 * basic dashboard
 * Docker Compose local environment
 
-Do not build these yet:
+Deferred beyond the original V1 (see current product direction above):
 
 * Kubernetes
 * multi-region execution

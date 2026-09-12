@@ -604,3 +604,57 @@ Restart workers and the scheduler after applying migrations. Earlier attempts
 cannot be reconstructed and are not backfilled; the dashboard identifies missing
 history. Inputs and outputs remain on the step rather than being copied into each
 attempt. Deleting a step or workflow also deletes its attempt records.
+
+## Track your own LLM calls
+
+Relay records model calls made by your synchronous step handlers, regardless of
+provider. Install and configure your chosen SDK in the worker environment, then
+wrap the call explicitly. Relay does not make model requests or need its own API
+key. The following adapter-shaped example assumes your application supplies
+`model_client` and maps its response fields:
+
+```python
+from app import relay
+
+def summarize(ctx):
+    prompt = {"text": ctx["workflow_input"]["text"], "instruction": "Summarize"}
+    with relay.llm_call(provider="your-provider", model="your-model", input=prompt) as call:
+        response = model_client.generate(prompt)
+        call.set_result(
+            response.text,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+    return {"summary": response.text}
+```
+
+`input` and the result must be JSON-serializable; convert SDK objects to plain
+values first. Token counts are optional non-negative integers. Omitted usage is
+shown as “Not reported”, not zero. Record a result exactly once before leaving the
+context, including `None` for an explicit JSON-null result. Multiple model calls
+can be recorded within one attempt.
+
+Open a run, select a step, and expand **LLM calls** within its attempt history to
+inspect prompts, responses, provider/model, duration, token counts, and outcome.
+Workflow detail and steps API responses include `attempts[].llm_calls` in start
+order. Failed calls remain visible after a retry, which creates new records.
+Calls interrupted by lease expiry become ABANDONED when recovery runs; late
+workers cannot overwrite them. Recorded call duration includes the wrapped code
+and ends at recovery detection for abandoned calls, not the exact process death.
+
+Only data explicitly supplied to the wrapper is captured. Omit credentials and
+redact sensitive prompt fields before recording: recorded values are stored in
+PostgreSQL and exposed through the local API/dashboard. Call errors retain the
+exception class. Exceptions propagate normally to your handler and Relay's step
+failure handling, whose existing step error may include the exception message.
+The wrapper does not intercept SDK internals, subprocesses, or child threads.
+Its context is scoped to the executing handler and cleared afterward. For
+streaming SDKs, consume the stream and record the final response inside the block.
+
+Apply migration `0004` and restart workers/scheduler before using the wrapper.
+Existing attempts have an empty call list; no earlier prompts can be recovered.
+Tracking writes are required: a storage failure can fail the step. Model calls
+may be billed again on retries or crashes; recording them does not make provider
+requests exactly-once. Usage counts describe reported successful results, not a
+complete billing ledger. Automatic pricing and provider-specific instrumentation
+remain future work.

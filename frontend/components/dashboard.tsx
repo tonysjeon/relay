@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Detail, Run, Step } from "@/lib/types";
+import type { Detail, Run, Step, LLMCall } from "@/lib/types";
 import { startPolling } from "@/lib/polling";
 import { orderSteps } from "@/lib/steps";
 import { Icon } from "@/components/icons";
@@ -35,6 +35,34 @@ function duration(run: {
 }
 function Json({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value, null, 2) ?? "null"}</pre>;
+}
+function ModelCalls({ calls }: { calls: LLMCall[] }) {
+  return (
+    <section className="model-calls" aria-label="LLM calls">
+      <h3>LLM calls <span className="muted">{calls.length}</span></h3>
+      {calls.length === 0 && <p className="muted">No model calls recorded for this attempt.</p>}
+      {calls.map((call, index) => (
+        <details className="model-call" key={call.id}>
+          <summary>
+            <span>{index + 1}. {call.provider} · {call.model}</span>
+            <Status value={call.status} />
+          </summary>
+          <dl className="facts">
+            <div><dt>Duration</dt><dd>{duration(call)}</dd></div>
+            <div><dt>Input tokens</dt><dd>{call.input_tokens ?? "Not reported"}</dd></div>
+            <div><dt>Output tokens</dt><dd>{call.output_tokens ?? "Not reported"}</dd></div>
+            <div><dt>Started</dt><dd>{date(call.started_at)}</dd></div>
+            <div><dt>Finished</dt><dd>{date(call.completed_at)}</dd></div>
+          </dl>
+          {call.error && <p className="attempt-error">{call.error}</p>}
+          <h3>Prompt / request</h3>
+          <Json value={call.input} />
+          <h3>Response</h3>
+          {call.status === "COMPLETED" ? <Json value={call.output} /> : <p className="muted">No completed response recorded.</p>}
+        </details>
+      ))}
+    </section>
+  );
 }
 function StepInspection({ step, run }: { step: Step; run: Detail }) {
   return (
@@ -120,6 +148,7 @@ function StepInspection({ step, run }: { step: Step; run: Detail }) {
                 <dd>{duration(attempt)}</dd>
               </div>
             </dl>
+            <ModelCalls calls={attempt.llm_calls ?? []} />
             {attempt.error && (
               <pre className="attempt-error">{attempt.error}</pre>
             )}

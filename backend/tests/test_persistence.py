@@ -231,6 +231,7 @@ def test_migration_round_trip_and_model_parity(database):
         "workflow_runs",
         "step_runs",
         "step_attempts",
+        "llm_calls",
         "step_dependencies",
         "workers",
     }

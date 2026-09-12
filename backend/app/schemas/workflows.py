@@ -19,6 +19,22 @@ class WorkflowResponse(BaseModel):
     completed_at: datetime | None
 
 
+class LLMCallResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    provider: str
+    model: str
+    input: Any
+    output: Any
+    input_tokens: int | None
+    output_tokens: int | None
+    status: Literal["RUNNING", "COMPLETED", "FAILED", "ABANDONED"]
+    error: str | None
+    started_at: datetime
+    completed_at: datetime | None
+
+
 class AttemptResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -29,6 +45,8 @@ class AttemptResponse(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     error: str | None
+
+    llm_calls: list[LLMCallResponse] = []
 
 
 class StepResponse(BaseModel):

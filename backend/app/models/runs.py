@@ -129,6 +129,42 @@ class StepAttempt(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
 
+    llm_calls: Mapped[list["LLMCall"]] = relationship(
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="(LLMCall.started_at, LLMCall.id)",
+    )
+
+
+class LLMCall(Base):
+    __tablename__ = "llm_calls"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('RUNNING', 'COMPLETED', 'FAILED', 'ABANDONED')",
+            name="ck_llm_status",
+        ),
+        CheckConstraint(
+            "input_tokens >= 0 AND output_tokens >= 0", name="ck_llm_tokens"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    step_attempt_id: Mapped[UUID] = mapped_column(
+        ForeignKey("step_attempts.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String)
+    model: Mapped[str] = mapped_column(String)
+    input: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    output: Mapped[Any | None] = mapped_column(JSONB)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.clock_timestamp()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
 
 class StepDependency(Base):
     __tablename__ = "step_dependencies"

@@ -11,6 +11,19 @@ export type Run = {
   started_at: string | null;
   completed_at: string | null;
 };
+export type LLMCall = {
+  id: string;
+  provider: string;
+  model: string;
+  input: unknown;
+  output: unknown;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  status: "RUNNING" | "COMPLETED" | "FAILED" | "ABANDONED";
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
 export type Attempt = {
   id: string;
   attempt_number: number;
@@ -19,6 +32,7 @@ export type Attempt = {
   started_at: string;
   completed_at: string | null;
   error: string | null;
+  llm_calls: LLMCall[];
 };
 export type Step = {
   id: string;
