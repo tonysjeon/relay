@@ -60,6 +60,18 @@ and queue delivery checks against PostgreSQL and Redis. Persistence tests create
 and remove a temporary database; the PostgreSQL user needs `CREATEDB` privileges
 (the Compose user already has them). Application data is left intact.
 
+GitHub Actions runs two checks on every pull request and push to `main`:
+
+- **Backend tests:** Python 3.12, fresh PostgreSQL 16 and Redis 7 services,
+  migration upgrade/schema checks, and the full integration suite.
+- **Frontend tests and build:** Node.js 24, a clean lockfile install, tests,
+  production build, and type checking.
+
+The jobs run independently and need no repository secrets. New commits cancel
+older runs on the same PR. CI can also be started from the Actions tab. To enforce
+these checks before merging, add `Backend tests` and `Frontend tests and build`
+as required status checks in the repository's branch rules after their first run.
+
 For backend development outside Docker, use Python 3.12:
 
 ```bash
