@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { Detail, Run, Step } from "@/lib/types";
 import { orderSteps } from "@/lib/steps";
+import { Icon } from "@/components/icons";
 
 function Status({ value }: { value: string }) {
   return (
@@ -39,7 +40,7 @@ function StepInspection({ step, run }: { step: Step; run: Detail }) {
     <section className="inspection" aria-label="Step details">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">STEP DETAILS</p>
+          <p className="eyebrow">Step inspection</p>
           <h2>{step.step_name}</h2>
         </div>
         <Status value={step.status} />
@@ -94,13 +95,17 @@ function StepInspection({ step, run }: { step: Step; run: Detail }) {
           <pre>{step.error}</pre>
         </div>
       )}
-      <h3>Output</h3>
+      <h3>
+        <Icon name="code" /> Output
+      </h3>
       {step.status === "COMPLETED" ? (
         <Json value={step.output} />
       ) : (
         <p className="muted">No completed output yet.</p>
       )}
-      <h3>Execution input</h3>
+      <h3>
+        <Icon name="code" /> Execution input
+      </h3>
       {step.input === null ? (
         <p className="muted">Available when this step is claimed.</p>
       ) : (
@@ -162,14 +167,16 @@ export function Dashboard({ runId }: { runId?: string }) {
   const step = detail?.steps.find((s) => s.id === selected) || detail?.steps[0];
   return (
     <>
-      <div className="page-heading">
+      <div className={`page-heading ${runId ? "detail-heading" : ""}`}>
         <div>
           {runId ? (
             <Link className="back" href="/">
-              ← All workflow runs
+              <Icon name="arrow-left" /> All workflow runs
             </Link>
           ) : (
-            <p className="eyebrow">EXECUTION OVERVIEW</p>
+            <p className="eyebrow">
+              <Icon name="workflow" /> Workflows
+            </p>
           )}
           <h1>
             {runId
@@ -178,16 +185,22 @@ export function Dashboard({ runId }: { runId?: string }) {
           </h1>
           <p className="subtitle">
             {runId
-              ? "Follow each step from input to output."
-              : "Every run, every step. See where your work stands."}
+              ? "Inspect dependencies, execution state, and results."
+              : "Monitor execution and explore the details of each run."}
           </p>
         </div>
-        <button className="refresh" onClick={reload} disabled={loading}>
-          <span aria-hidden="true">↻</span> {loading ? "Loading…" : "Refresh"}
-        </button>
-      </div>
-      <div className="update-line">
-        {error ? "Data unavailable" : updated ? `Updated ${updated}` : "Connecting to Relay…"}
+        <div className="heading-actions">
+          <button className="refresh" onClick={reload} disabled={loading}>
+            <Icon name="refresh" /> {loading ? "Refreshing…" : "Refresh"}
+          </button>
+          <span className="update-line">
+            {error
+              ? "Data unavailable"
+              : updated
+                ? `Updated ${updated}`
+                : "Connecting…"}
+          </span>
+        </div>
       </div>
       {error && (
         <div className="error-banner" role="alert">
@@ -202,20 +215,21 @@ export function Dashboard({ runId }: { runId?: string }) {
         </div>
       )}
       {!runId && (
-        <>
+        <section className="runs-panel" aria-label="Workflow runs">
           <div className="toolbar">
             <div>
               <h2>
-                All runs{" "}
+                Run history{" "}
                 <span className="count">
                   {runs.length}
                   {more ? "+" : ""}
                 </span>
               </h2>
-              <p className="muted">Most recent first</p>
+              <p className="muted">Sorted by newest first</p>
             </div>
-            <label>
-              Status{" "}
+            <label className="status-filter">
+              <Icon name="filter" />
+              <span className="sr-only">Status</span>
               <select
                 value={filter}
                 onChange={(e) => {
@@ -240,7 +254,7 @@ export function Dashboard({ runId }: { runId?: string }) {
                 <tr>
                   <th>Workflow</th>
                   <th>Status</th>
-                  <th>Created</th>
+                  <th className="created-column">Created</th>
                   <th>Duration</th>
                   <th>
                     <span className="sr-only">Details</span>
@@ -251,17 +265,41 @@ export function Dashboard({ runId }: { runId?: string }) {
                 {runs.map((run) => (
                   <tr key={run.id}>
                     <td>
-                      <Link className="run-link" href={`/workflows/${run.id}`}>
-                        {run.workflow_name}
-                      </Link>
-                      <span className="run-id mono" title={run.id}>
-                        {run.id.slice(0, 8)}
-                      </span>
+                      <div className="workflow-cell">
+                        <span className="workflow-icon">
+                          <Icon name="workflow" />
+                        </span>
+                        <div>
+                          <Link
+                            className="run-link"
+                            title={run.workflow_name}
+                            href={`/workflows/${run.id}`}
+                          >
+                            {run.workflow_name}
+                          </Link>
+                          <span className="run-id mono" title={run.id}>
+                            {run.id.slice(0, 8)}
+                          </span>
+                        </div>
+                      </div>
                     </td>
                     <td>
                       <Status value={run.status} />
                     </td>
-                    <td className="time">{date(run.created_at)}</td>
+                    <td className="time created-column">
+                      <time dateTime={run.created_at}>
+                        {new Date(run.created_at).toLocaleDateString(
+                          undefined,
+                          { month: "short", day: "numeric", year: "numeric" },
+                        )}
+                        <span>
+                          {new Date(run.created_at).toLocaleTimeString(
+                            undefined,
+                            { hour: "2-digit", minute: "2-digit" },
+                          )}
+                        </span>
+                      </time>
+                    </td>
                     <td className="mono">{duration(run)}</td>
                     <td>
                       <Link
@@ -269,7 +307,7 @@ export function Dashboard({ runId }: { runId?: string }) {
                         className="arrow"
                         href={`/workflows/${run.id}`}
                       >
-                        ↗
+                        <Icon name="chevron-right" />
                       </Link>
                     </td>
                   </tr>
@@ -278,7 +316,9 @@ export function Dashboard({ runId }: { runId?: string }) {
             </table>
             {!loading && !error && runs.length === 0 && (
               <div className="empty">
-                <span className="empty-icon">◇</span>
+                <span className="empty-icon">
+                  <Icon name="workflow" />
+                </span>
                 <h2>
                   {filter || page
                     ? "No matching runs"
@@ -299,17 +339,17 @@ export function Dashboard({ runId }: { runId?: string }) {
                 disabled={page === 0 || loading}
                 onClick={() => setPage((p) => p - 1)}
               >
-                ← Previous
+                <Icon name="arrow-left" /> Previous
               </button>
               <button
                 disabled={!more || loading}
                 onClick={() => setPage((p) => p + 1)}
               >
-                Next →
+                Next <Icon name="arrow-right" />
               </button>
             </div>
           </div>
-        </>
+        </section>
       )}
       {runId && detail && (
         <>
@@ -357,14 +397,18 @@ export function Dashboard({ runId }: { runId?: string }) {
                         className={`step-symbol ${s.status.toLowerCase()}`}
                         aria-hidden="true"
                       >
-                        {s.status === "COMPLETED"
-                          ? "✓"
-                          : s.status === "FAILED"
-                            ? "×"
-                            : "○"}
+                        <Icon
+                          name={
+                            s.status === "COMPLETED"
+                              ? "check"
+                              : s.status === "FAILED"
+                                ? "close"
+                                : "circle"
+                          }
+                        />
                       </span>
                       <strong>{s.step_name}</strong>
-                      <span className="step-arrow">→</span>
+                      <Icon name="chevron-right" className="step-arrow" />
                     </div>
                     <Status value={s.status} />
                     <p>
