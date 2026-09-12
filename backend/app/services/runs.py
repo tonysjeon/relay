@@ -68,7 +68,8 @@ def get_workflow_run(session: Session, workflow_run_id: UUID) -> WorkflowRun | N
         select(WorkflowRun)
         .where(WorkflowRun.id == workflow_run_id)
         .options(
-            selectinload(WorkflowRun.steps), selectinload(WorkflowRun.dependencies)
+            selectinload(WorkflowRun.steps).selectinload(StepRun.attempts),
+            selectinload(WorkflowRun.dependencies),
         )
         .execution_options(populate_existing=True)
     )

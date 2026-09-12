@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -17,6 +17,18 @@ class WorkflowResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+
+
+class AttemptResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    attempt_number: int
+    worker_id: str
+    status: Literal["RUNNING", "COMPLETED", "FAILED", "ABANDONED"]
+    started_at: datetime
+    completed_at: datetime | None
+    error: str | None
 
 
 class StepResponse(BaseModel):
@@ -38,6 +50,7 @@ class StepResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     depends_on: list[UUID] = []
+    attempts: list[AttemptResponse] = []
 
 
 class WorkflowDetailResponse(WorkflowResponse):

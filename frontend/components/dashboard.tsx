@@ -90,6 +90,42 @@ function StepInspection({ step, run }: { step: Step; run: Detail }) {
           </dd>
         </div>
       </dl>
+      <h3>Attempt history</h3>
+      {step.attempt_count > (step.attempts?.length ?? 0) && (
+        <p className="muted">History is unavailable for earlier attempts.</p>
+      )}
+      {!step.attempt_count && <p className="muted">This step has not started yet.</p>}
+      <ol className="attempt-history" aria-label="Attempt history">
+        {[...(step.attempts ?? [])].reverse().map((attempt) => (
+          <li key={attempt.id}>
+            <div className="attempt-heading">
+              <strong>Attempt {attempt.attempt_number}</strong>
+              <Status value={attempt.status} />
+            </div>
+            <dl className="facts">
+              <div className="full">
+                <dt>Worker</dt>
+                <dd className="mono">{attempt.worker_id}</dd>
+              </div>
+              <div>
+                <dt>Started</dt>
+                <dd>{date(attempt.started_at)}</dd>
+              </div>
+              <div>
+                <dt>Finished</dt>
+                <dd>{date(attempt.completed_at)}</dd>
+              </div>
+              <div>
+                <dt>Duration</dt>
+                <dd>{duration(attempt)}</dd>
+              </div>
+            </dl>
+            {attempt.error && (
+              <pre className="attempt-error">{attempt.error}</pre>
+            )}
+          </li>
+        ))}
+      </ol>
       {step.error && (
         <div className="error-detail">
           <h3>Last error</h3>

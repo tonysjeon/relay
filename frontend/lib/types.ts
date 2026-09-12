@@ -11,6 +11,15 @@ export type Run = {
   started_at: string | null;
   completed_at: string | null;
 };
+export type Attempt = {
+  id: string;
+  attempt_number: number;
+  worker_id: string;
+  status: "RUNNING" | "COMPLETED" | "FAILED" | "ABANDONED";
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+};
 export type Step = {
   id: string;
   step_name: string;
@@ -27,5 +36,6 @@ export type Step = {
   started_at: string | null;
   completed_at: string | null;
   depends_on: string[];
+  attempts: Attempt[];
 };
 export type Detail = Run & { steps: Step[] };

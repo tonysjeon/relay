@@ -7,6 +7,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.models import StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from app.services.attempts import finish_attempt
 from app.services.queue import JOB_QUEUE, enqueue_steps
 from app.services.workflow_status import refresh_workflow_status
 from app.services.workflows import QueueDispatchError
@@ -29,7 +30,7 @@ def recover_abandoned_steps(
                     WorkflowRun.queue_name == queue_name,
                     select(StepRun.id)
                     .where(StepRun.workflow_run_id == WorkflowRun.id, *expired)
-                    .exists()
+                    .exists(),
                 )
                 .order_by(WorkflowRun.id)
                 .limit(100)
@@ -68,6 +69,14 @@ def recover_abandoned_steps(
                         "attempt": step.attempt_count,
                         "requeued": retryable,
                     }
+                )
+                finish_attempt(
+                    session,
+                    step.id,
+                    step.attempt_count,
+                    step.lease_owner,
+                    "ABANDONED",
+                    error="Worker lease expired",
                 )
                 step.status = StepStatus.READY if retryable else StepStatus.FAILED
                 step.error = "Worker lease expired"

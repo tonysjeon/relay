@@ -14,7 +14,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.db.connections import create_redis_client
-from app.models import StepDependency, StepRun, StepStatus, WorkflowRun, WorkflowStatus
+from app.models import (
+    StepAttempt,
+    StepDependency,
+    StepRun,
+    StepStatus,
+    WorkflowRun,
+    WorkflowStatus,
+)
+from app.services.attempts import finish_attempt
 from app.services.dependencies import unlock_dependents
 from app.services.failures import record_failure
 from app.services.leases import keep_lease, lease_conditions
@@ -93,10 +101,19 @@ def execute_step(
                 lease_owner=owner,
                 lease_expires_at=func.clock_timestamp() + timedelta(seconds=duration),
             )
-            .returning(StepRun.id, StepRun.attempt_count)
+            .returning(StepRun.id, StepRun.attempt_count, StepRun.started_at)
         ).one_or_none()
         if claimed is None:
             return False
+        session.add(
+            StepAttempt(
+                step_run_id=step.id,
+                attempt_number=claimed.attempt_count,
+                worker_id=owner,
+                status="RUNNING",
+                started_at=claimed.started_at,
+            )
+        )
         session.execute(
             update(WorkflowRun)
             .where(
@@ -171,6 +188,7 @@ def execute_step(
             if completed.rowcount != 1:
                 logger.warning(json.dumps({"event": "lease_lost", **log_fields}))
                 return False
+            finish_attempt(session, step_run_id, attempt, owner, "COMPLETED")
             ready_ids = (
                 unlock_dependents(session, step_run_id)
                 if run.status == WorkflowStatus.RUNNING
