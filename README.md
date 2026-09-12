@@ -493,3 +493,36 @@ The run's `completed_at` records when cancellation was accepted, even if a handl
 finishes later.
 
 Create runs through `relay.run(...)`; workflow creation over HTTP is not included.
+
+## Dashboard
+
+`docker compose up --build -d` now includes the Next.js dashboard at
+`http://localhost:3010` (`FRONTEND_PORT` overrides the port).
+
+The runs page supports status filtering and pagination. Open a run to inspect
+its steps in dependency order, then select a step to see its attempts, current
+lease owner, timing, latest error, input, and output. The backend does not retain
+per-attempt history or a completed step's former lease owner. The dashboard refreshes every two seconds while visible, preserving the selected
+step and the last successful data. Slow requests never overlap. Hidden tabs pause
+requests and refresh when visible again. Failed requests show a warning with the
+last update time and retry automatically; Refresh also retries immediately. Empty lists and API failures have explicit messages.
+
+For frontend development with the Docker API running:
+
+```bash
+cd frontend
+npm ci
+npm run dev -- --port 3010
+```
+
+Stop the Compose frontend first if it already occupies port 3010. The development
+server defaults to `API_URL=http://localhost:8010`; set `API_URL` in
+`frontend/.env.local` if your backend uses another port. In Compose it uses the
+internal API address. Requests are proxied on the Next.js server, so no browser
+CORS configuration is required.
+
+Use Node.js 24 for frontend development. Validate with `npm test`,
+`npm run build`, and `npm run typecheck` from
+`frontend/`. Keep the existing backend integration suite as the execution-state
+contract. To manually verify the UI, open a completed run, select each step,
+filter to a status with no runs, and check an unknown run URL for the error state.
