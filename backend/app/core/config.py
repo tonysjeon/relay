@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,3 +13,6 @@ class Settings(BaseSettings):
     step_lease_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     lease_scan_interval_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
     ready_scan_interval_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
+    openai_api_key: SecretStr | None = None
+    openai_model: str = Field(default="gpt-4.1-mini", min_length=1)
+    openai_timeout_seconds: float = Field(default=60, gt=0, allow_inf_nan=False)

@@ -6,8 +6,7 @@ steps, and multiple workers that execute steps and unlock their dependents.
 
 ## Run
 
-Install Docker with Docker Compose, then run from the repository root. No API keys
-or external services are required. Copy the example environment only on first setup:
+Install Docker with Docker Compose, then run from the repository root. The core stack and four local examples require no API keys. Copy the example environment only on first setup:
 
 ```bash
 cp .env.example .env
@@ -583,7 +582,7 @@ docker compose exec api python -m app.examples linear
 Use `parallel`, `retry`, or `crash` in place of `linear`. Start the Compose
 `runtime` profile to run the two workers and scheduler, and follow the printed
 run UUID in the dashboard. The retry example fails twice before succeeding on its
-third attempt. All examples run locally without API keys.
+third attempt. These four examples run locally without API keys.
 
 ## Step attempt history
 
@@ -658,3 +657,35 @@ may be billed again on retries or crashes; recording them does not make provider
 requests exactly-once. Usage counts describe reported successful results, not a
 complete billing ledger. Automatic pricing and provider-specific instrumentation
 remain future work.
+
+## Test tracking with OpenAI
+
+Put `OPENAI_API_KEY=your-key` in your local `.env`; never put a key in the prompt,
+source code, or chat. `OPENAI_MODEL` defaults to `gpt-4.1-mini`, and
+`OPENAI_TIMEOUT_SECONDS` defaults to 60. The model must support the
+[Responses API](https://developers.openai.com/api/docs/guides/text).
+
+Rebuild the API, apply migrations, and submit to a dedicated test queue:
+
+```bash
+docker compose up --build -d --wait api
+docker compose exec api alembic upgrade head
+docker compose exec api python -m app.examples openai --queue relay:openai-test --prompt "Explain retries in one sentence."
+docker compose exec api python -m app.workers.worker --once --queue relay:openai-test
+```
+
+The first Python command prints the run ID; the second consumes one job and exits.
+Use a fresh queue name if you have old queued tests. No scheduler or continuously
+running workers are needed for this one-step test. If the dashboard has not been
+rebuilt for LLM tracking, run `docker compose up --build -d --wait frontend`.
+
+Open the run at http://localhost:3010, select **generate**, and expand its model
+call under **Attempt history**. Verify the submitted prompt, returned text,
+provider/model, input/output token counts, duration, and COMPLETED status. Raw
+output includes the response ID and the model reported by OpenAI.
+
+The test uses one Responses call, a 512-output-token limit, a 4000-character prompt
+limit, and no SDK or workflow retries. It incurs OpenAI API usage. Missing keys
+fail before submission; API failures appear in attempt history. Refusal, incomplete,
+and empty text responses fail the test. Unit/integration tests use an offline HTTP
+transport and never make paid calls. The core tracking API remains provider-neutral.
