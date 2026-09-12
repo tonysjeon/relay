@@ -3,9 +3,9 @@
 Start the stack, apply migrations, then start the workers and scheduler:
 
 ```bash
-docker compose up --build -d
+docker compose up --build -d --wait
 docker compose exec api alembic upgrade head
-docker compose --profile runtime up --build -d
+docker compose --profile runtime up --build -d --wait
 ```
 
 Each command prints a run UUID. Open http://localhost:3010 to follow the run,
@@ -37,7 +37,7 @@ scheduler must be running to execute it.
 6. Restart the killed service: `docker compose start worker-1`.
 
 Worker processes register distinct IDs; the Compose service name appears as the
-log prefix. `GET http://localhost:8010/workers` shows the killed worker as unhealthy
+log prefix. `GET http://localhost:8000/workers` shows the killed worker as unhealthy
 after its heartbeat times out. Adjust API and frontend ports if configured.
 
 ## How they work

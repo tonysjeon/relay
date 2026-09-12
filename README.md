@@ -6,12 +6,15 @@ steps, and multiple workers that execute steps and unlock their dependents.
 
 ## Run
 
-Install Docker with Docker Compose, then run from the repository root:
+Install Docker with Docker Compose, then run from the repository root. No API keys
+or external services are required. Copy the example environment only on first setup:
 
 ```bash
 cp .env.example .env
 docker compose up --build -d --wait
 docker compose exec api alembic upgrade head
+docker compose --profile runtime up --build -d --wait
+docker compose exec api python -m app.examples linear
 curl --fail http://localhost:8000/health
 ```
 
@@ -19,10 +22,30 @@ Expected response: `{"status":"ok"}`. Each request checks PostgreSQL with
 `SELECT 1` and Redis with `PING`. An unavailable dependency produces HTTP 503
 with `{"status":"unavailable"}`. API docs: http://localhost:8000/docs.
 
-The stack contains Python 3.12 / FastAPI, PostgreSQL, and Redis. PostgreSQL data
-persists in a Docker volume. Only the API is exposed, on localhost; set
-`API_PORT` in `.env` if port 8000 is occupied. Database and Redis URLs can be
-overridden in `.env`; Compose uses internal service hostnames by default.
+Open [the dashboard](http://localhost:3010) and select the printed run UUID.
+The linear example should complete all three steps with one attempt each.
+
+The full stack contains the Next.js dashboard, Python 3.12 / FastAPI, two workers,
+a scheduler, PostgreSQL, and Redis. PostgreSQL data persists in a Docker volume.
+The API and dashboard bind only to localhost. Set `API_PORT` and `FRONTEND_PORT`
+in `.env` if their ports are occupied, and adjust the URLs above. Database and Redis
+URLs can be overridden in `.env`; Compose uses internal service hostnames by default.
+
+Start the runtime profile after migrations finish. Without that profile, the API
+and dashboard run but submitted workflows wait for workers. The scheduler must
+stay running for retries, lost-job delivery, and worker crash recovery.
+
+When updating an existing installation, stop the runtime before migrating:
+
+```bash
+docker compose stop worker-1 worker-2 scheduler
+docker compose up --build -d --wait
+docker compose exec api alembic upgrade head
+docker compose --profile runtime up --build -d --wait
+```
+
+See [the local verification checklist](examples/local-verification.md) for a clean
+startup check and the two-worker crash demo.
 
 ## Test
 
@@ -31,10 +54,9 @@ docker compose exec api pytest
 docker compose exec api pytest --integration
 ```
 
-The default suite checks healthy and failed dependency responses and environment
-configuration. `--integration` additionally checks the running services and
-persistence, including committed graph reconstruction, transaction rollback,
-database constraints, and migration upgrade/downgrade. Persistence tests create
+The default suite runs checks that do not need live services. `--integration`
+adds persistence, execution, concurrency, retries, lease recovery, API behavior,
+and queue delivery checks against PostgreSQL and Redis. Persistence tests create
 and remove a temporary database; the PostgreSQL user needs `CREATEDB` privileges
 (the Compose user already has them). Application data is left intact.
 
@@ -55,7 +77,7 @@ directory. Compose does not publish dependency ports to the host.
 
 ```bash
 docker compose logs api
-docker compose down
+docker compose --profile runtime down
 ```
 
 Stopping the stack retains PostgreSQL data.
