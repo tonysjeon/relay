@@ -43,6 +43,7 @@ class WorkflowRun(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workflow_name: Mapped[str] = mapped_column(String, nullable=False)
+    queue_name: Mapped[str] = mapped_column(String, server_default="relay:jobs")
     status: Mapped[WorkflowStatus] = mapped_column(
         Enum(WorkflowStatus, name="workflow_status", validate_strings=True),
         server_default="PENDING",

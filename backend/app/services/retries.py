@@ -35,6 +35,7 @@ def schedule_retries(
             session.scalars(
                 select(WorkflowRun.id)
                 .where(
+                    WorkflowRun.queue_name == queue_name,
                     WorkflowRun.status == WorkflowStatus.RUNNING,
                     select(StepRun.id)
                     .where(StepRun.workflow_run_id == WorkflowRun.id, *due)

@@ -12,3 +12,4 @@ class Settings(BaseSettings):
     worker_timeout_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     step_lease_seconds: float = Field(default=30, gt=0, allow_inf_nan=False)
     lease_scan_interval_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)
+    ready_scan_interval_seconds: float = Field(default=5, gt=0, allow_inf_nan=False)

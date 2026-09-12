@@ -48,6 +48,7 @@ def run(
     try:
         with Session(engine) as session, session.begin():
             workflow_run = create_workflow_run(session, workflow.name, input)
+            workflow_run.queue_name = queue_name
             steps = create_step_runs(session, workflow_run.id, list(workflow.steps))
             for step in steps:
                 definition = workflow.steps[step.step_name]

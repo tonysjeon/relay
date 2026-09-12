@@ -3,11 +3,16 @@ import json
 import logging
 import time
 
+from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.core.config import Settings
 from app.db.connections import create_database_engine, create_redis_client
+from app.services.dispatch import reconcile_ready_steps
 from app.services.queue import JOB_QUEUE
 from app.services.recovery import recover_abandoned_steps
 from app.services.retries import schedule_retries
+from app.services.workflows import QueueDispatchError
 
 logger = logging.getLogger(__name__)
 
@@ -25,24 +30,32 @@ def main() -> None:
     try:
         redis = create_redis_client(settings)
         try:
-            next_retry, next_recovery = 0.0, 0.0
+            scans = [
+                (schedule_retries, settings.retry_scan_interval_seconds),
+                (recover_abandoned_steps, settings.lease_scan_interval_seconds),
+                (reconcile_ready_steps, settings.ready_scan_interval_seconds),
+            ]
+            deadlines = [0.0] * len(scans)
             while True:
-                now = time.monotonic()
-                if now >= next_retry:
-                    count = schedule_retries(engine, redis, queue_name=args.queue)
-                    if count:
-                        logger.info(
-                            json.dumps({"event": "retries_queued", "count": count})
+                for index, (scan, interval) in enumerate(scans):
+                    if time.monotonic() < deadlines[index]:
+                        continue
+                    try:
+                        count = scan(engine, redis, queue_name=args.queue)
+                        if count:
+                            logger.info(
+                                json.dumps({"event": scan.__name__, "count": count})
+                            )
+                    except (RedisError, SQLAlchemyError, QueueDispatchError):
+                        if args.once:
+                            raise
+                        logger.exception(
+                            "Scheduler scan failed: %s; will retry", scan.__name__
                         )
-                    next_retry = time.monotonic() + settings.retry_scan_interval_seconds
-                if now >= next_recovery:
-                    recover_abandoned_steps(engine, redis, queue_name=args.queue)
-                    next_recovery = (
-                        time.monotonic() + settings.lease_scan_interval_seconds
-                    )
+                    deadlines[index] = time.monotonic() + interval
                 if args.once:
                     return
-                time.sleep(max(0, min(next_retry, next_recovery) - time.monotonic()))
+                time.sleep(max(0, min(deadlines) - time.monotonic()))
         except KeyboardInterrupt:
             pass
         finally:
