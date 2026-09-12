@@ -50,7 +50,11 @@ def test_worker_executes_queued_root_and_persists_output(database, queue):
     client, key = queue
     assert run_once(database, client, {workflow.name: workflow}, queue_name=key)
     handler.assert_called_once_with(
-        {"workflow_input": {"company": "Stripe"}, "step_outputs": {}}
+        {
+            "idempotency_key": f"{run_id}:fetch",
+            "workflow_input": {"company": "Stripe"},
+            "step_outputs": {},
+        }
     )
     with Session(database) as session:
         run = get_workflow_run(session, run_id)
@@ -60,6 +64,7 @@ def test_worker_executes_queued_root_and_persists_output(database, queue):
         assert steps["fetch"].output == {"company": "Stripe", "score": 92}
         assert steps["fetch"].attempt_count == 1
         assert steps["fetch"].input == {
+            "idempotency_key": f"{run_id}:fetch",
             "workflow_input": {"company": "Stripe"},
             "step_outputs": {},
         }
@@ -87,7 +92,7 @@ def test_claim_is_committed_before_handler_and_connection_is_released(database, 
 
 
 def test_worker_builds_context_from_persisted_dependencies(database, queue):
-    workflow, _, ids = create_run(
+    workflow, run_id, ids = create_run(
         database, queue, lambda ctx: {"source": ctx["workflow_input"]}, downstream=True
     )
     registry = {workflow.name: workflow}
@@ -102,6 +107,7 @@ def test_worker_builds_context_from_persisted_dependencies(database, queue):
     with Session(database) as session:
         step = session.get(StepRun, ids["report"])
         assert step.output == {
+            "idempotency_key": f"{run_id}:report",
             "workflow_input": {"company": "Stripe"},
             "step_outputs": {"fetch": {"source": {"company": "Stripe"}}},
         }

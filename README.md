@@ -442,3 +442,54 @@ window also remains. Existing `RUNNING` records created by older, unleased worke
 have no expiry and require manual inspection; restart old worker processes before
 using recovery. The test suite includes real process termination, lease renewal,
 stale-result rejection, concurrent recovery scans, and retry exhaustion.
+
+## Handler idempotency
+
+Every handler receives `ctx["idempotency_key"]`, formatted as
+`<workflow_run_id>:<step_name>`. It stays the same across handler retries and
+worker recovery, and differs for other steps and new runs. Relay also saves the
+key in the step's execution input.
+
+Pass this key to external services that support idempotency, for example
+`payments.charge(..., idempotency_key=ctx["idempotency_key"])`. Relay may execute a
+handler more than once; the key alone cannot prevent duplicate side effects.
+The external service must enforce deduplication, or your integration must store
+and check the key transactionally with its side effect.
+
+## Workflow API
+
+Open `/docs` for the interactive API reference. With `API_PORT=8010`, use
+`http://localhost:8010/docs`.
+
+| Endpoint | Result |
+| --- | --- |
+| `GET /workflows` | Runs, newest first; `limit` (1–100, default 50), `offset`, and optional `status` filter |
+| `GET /workflows/{id}` | Run metadata and steps, including inputs, outputs, errors, attempts, leases, and timestamps |
+| `GET /workflows/{id}/steps` | The same step list; `depends_on` contains prerequisite step UUIDs |
+| `POST /workflows/{id}/cancel` | Cancel a pending or running workflow |
+| `GET /workers` | Worker heartbeat health |
+
+For example (adjust the port to match `API_PORT`):
+
+```bash
+curl 'http://localhost:8010/workflows?limit=10'
+curl 'http://localhost:8010/workflows?status=RUNNING'
+curl http://localhost:8010/workflows/RUN_ID
+curl http://localhost:8010/workflows/RUN_ID/steps
+curl -X POST http://localhost:8010/workflows/RUN_ID/cancel
+```
+
+Missing run IDs return 404; malformed IDs and invalid query parameters return
+422. Cancelling a completed or failed workflow returns 409. Repeating a
+cancellation returns the existing cancelled run without changing its timestamp.
+
+Cancellation prevents new claims, retries, and downstream execution. It does
+not interrupt a Python handler already in progress or undo its external effects.
+Such a handler can still save its result or error, but the workflow remains
+`CANCELLED`. Step statuses retain their execution state, so a cancelled workflow
+may contain `READY`, `PENDING`, or `RETRYING` steps that will never execute.
+Queued identifiers are discarded when workers see that the run is cancelled.
+The run's `completed_at` records when cancellation was accepted, even if a handler
+finishes later.
+
+Create runs through `relay.run(...)`; workflow creation over HTTP is not included.

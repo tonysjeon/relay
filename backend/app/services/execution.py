@@ -76,6 +76,7 @@ def execute_step(
         if any(parent.status != StepStatus.COMPLETED for parent in dependencies):
             raise ValueError(f"Step {step.id} has incomplete dependencies")
         context = {
+            "idempotency_key": f"{run.id}:{step.step_name}",
             "workflow_input": run.input,
             "step_outputs": {
                 parent.step_name: parent.output for parent in dependencies
