@@ -1,4 +1,5 @@
 from app.models.runs import (
+    StepAttempt,
     StepDependency,
     StepRun,
     StepStatus,
@@ -8,6 +9,7 @@ from app.models.runs import (
 )
 
 __all__ = [
+    "StepAttempt",
     "StepDependency",
     "StepRun",
     "StepStatus",

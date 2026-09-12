@@ -376,7 +376,8 @@ allows three handler invocations. The worker increments `attempt_count` when it
 claims work, saves the exception type/message on failure, and keeps dependent
 steps blocked. Exhausting attempts marks both the step and workflow `FAILED`.
 A successful retry saves output, clears the latest error and retry deadline,
-and unlocks eligible dependents normally. Error history is not stored yet.
+and unlocks eligible dependents normally. Each failed attempt retains its own error
+in the step attempt history.
 
 Retry deadlines are persisted in `next_retry_at`, with delays of 1, 2, 4, 8, 16,
 32, then 60 seconds. Workers do not sleep for retries. Run a scheduler alongside
@@ -541,8 +542,11 @@ Create runs through `relay.run(...)`; workflow creation over HTTP is not include
 
 The runs page supports status filtering and pagination. Open a run to inspect
 its steps in dependency order, then select a step to see its attempts, current
-lease owner, timing, latest error, input, and output. The backend does not retain
-per-attempt history or a completed step's former lease owner. The dashboard refreshes every two seconds while visible, preserving the selected
+lease owner, timing, latest error, input, and output. Attempt history shows each
+claim's worker, start and finish times, outcome, and error, newest first. Failed
+handler attempts remain visible after a successful retry; expired leases are
+marked ABANDONED when the scheduler recovers them. The dashboard refreshes every
+two seconds while visible, preserving the selected
 step and the last successful data. Slow requests never overlap. Hidden tabs pause
 requests and refresh when visible again. Failed requests show a warning with the
 last update time and retry automatically; Refresh also retries immediately. Empty lists and API failures have explicit messages.
@@ -580,3 +584,23 @@ Use `parallel`, `retry`, or `crash` in place of `linear`. Start the Compose
 `runtime` profile to run the two workers and scheduler, and follow the printed
 run UUID in the dashboard. The retry example fails twice before succeeding on its
 third attempt. All examples run locally without API keys.
+
+## Step attempt history
+
+Migration `0003` adds attempt records for new claims. Workflow detail and steps
+responses include an `attempts` array ordered by attempt number. Each record has
+`id`, `attempt_number`, `worker_id`, `status`, `started_at`, `completed_at`, and
+`error`. Status is RUNNING, COMPLETED, FAILED, or ABANDONED. A failed attempt may
+be followed by a retry even though its own outcome stays FAILED.
+
+Attempt writes share the claim, completion, failure, and recovery transactions.
+Duplicate deliveries do not create extra attempts, and stale workers cannot change
+recorded outcomes. Cancellation preserves the actual outcome of already-running
+handlers. ABANDONED finish time records when recovery detected the expired lease,
+not an exact worker death time. Keep the scheduler running to resolve expired
+RUNNING attempts.
+
+Restart workers and the scheduler after applying migrations. Earlier attempts
+cannot be reconstructed and are not backfilled; the dashboard identifies missing
+history. Inputs and outputs remain on the step rather than being copied into each
+attempt. Deleting a step or workflow also deletes its attempt records.

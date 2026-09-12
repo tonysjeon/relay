@@ -5,6 +5,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from app.models import StepRun, StepStatus, WorkflowRun
+from app.services.attempts import finish_attempt
 from app.services.leases import lease_conditions
 from app.services.retries import retry_delay
 from app.services.workflow_status import refresh_workflow_status
@@ -50,5 +51,13 @@ def record_failure(
         )
         if changed.rowcount != 1:
             return None
+        finish_attempt(
+            session,
+            step_id,
+            attempt,
+            worker_id,
+            "FAILED",
+            error=f"{type(error).__name__}: {error}".replace("\x00", "\\0"),
+        )
         refresh_workflow_status(session, run)
         return status

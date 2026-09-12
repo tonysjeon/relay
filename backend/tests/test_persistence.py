@@ -230,6 +230,7 @@ def test_migration_round_trip_and_model_parity(database):
         "alembic_version",
         "workflow_runs",
         "step_runs",
+        "step_attempts",
         "step_dependencies",
         "workers",
     }

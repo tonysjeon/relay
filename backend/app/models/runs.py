@@ -98,6 +98,37 @@ class StepRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    attempts: Mapped[list["StepAttempt"]] = relationship(
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="StepAttempt.attempt_number",
+    )
+
+
+class StepAttempt(Base):
+    __tablename__ = "step_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "step_run_id", "attempt_number", name="uq_step_attempt_number"
+        ),
+        CheckConstraint("attempt_number >= 1", name="ck_attempt_number"),
+        CheckConstraint(
+            "status IN ('RUNNING', 'COMPLETED', 'FAILED', 'ABANDONED')",
+            name="ck_attempt_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    step_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("step_runs.id", ondelete="CASCADE")
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    worker_id: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+
 
 class StepDependency(Base):
     __tablename__ = "step_dependencies"

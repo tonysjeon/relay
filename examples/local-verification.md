@@ -23,7 +23,7 @@ curl --fail http://localhost:18010/health
 curl --fail http://localhost:18010/workflows
 ```
 
-Expect migration `0002 (head)`, no pending schema changes, health `ok`, and an
+Expect migration `0003 (head)`, no pending schema changes, health `ok`, and an
 empty workflow list. Open http://localhost:13010 and confirm the empty state.
 The API health check tests connections; it does not verify that migrations have
 been applied. Apply migrations before starting workers or submitting examples.
