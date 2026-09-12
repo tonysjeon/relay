@@ -200,16 +200,22 @@ default key on these helpers and on `relay.run` (useful for isolated tests).
 `relay.run` uses `REDIS_URL` by default and closes the client afterward. Supply
 `redis=client` to reuse a caller-owned connection. Redis errors after commit raise
 `relay.QueueDispatchError`, containing `run_id` and `step_run_ids`. The saved run
-and ready steps remain in PostgreSQL. After Redis recovers, retry dispatch with
-`enqueue_steps(client, error.step_run_ids)` rather than calling `relay.run` again.
+and ready steps remain in PostgreSQL. Do not call `relay.run` again: the scheduler
+will restore their messages once Redis is available.
 
-PostgreSQL commit and Redis enqueue are separate operations. A process crash
-between them can leave ready steps unqueued; there is no automatic
-reconciliation. An uncertain Redis response may mean a retry creates duplicate
-messages. Atomic work claiming prevents concurrent duplicate execution.
-Dequeue removes a job. Once a worker commits its claim, its lease enables recovery
-if it disappears. A crash between dequeue and claim can still lose that queue
-message; recovery of unclaimed `READY` jobs is not implemented.
+PostgreSQL commit and Redis enqueue are separate operations. The scheduler repairs
+missing `READY` messages every five seconds (`READY_SCAN_INTERVAL_SECONDS`),
+including a crash after dequeue but before claim. It only scans active workflows
+on its configured queue, visits all eligible steps in batches of 100, and atomically
+checks list membership before appending a missing message. Repeated scans do not
+build a duplicate backlog while workers are offline. A concurrent claim can still
+leave a stale message; conditional database claims safely discard it.
+
+Queue routing is persisted on each workflow. Run the scheduler with `--queue NAME`
+for custom queues. Migration `0002` assigns existing runs to `relay:jobs`; operators
+with older custom-queue runs should update their routing before starting recovery.
+Redis list membership checks are linear in queue length, so this simple reconciler
+is intended for modest queues rather than high-throughput dispatch.
 
 Inspect without consuming jobs:
 
@@ -285,7 +291,7 @@ prevents duplicate readiness transitions; the lock does not cover handler execut
 If Redis dispatch fails, the completed step stays completed and its dependents
 stay ready. `QueueDispatchError` exposes the run ID and newly ready IDs for retry
 with `enqueue_steps`; retry dispatch without rerunning the completed handler.
-The existing commit-to-queue crash window remains, with no automatic reconciliation.
+The scheduler also restores these messages automatically on its next READY scan.
 
 Workflow status is updated in the same transaction: permanent failure fails the
 run, and all steps succeeding completes it. Failed/cancelled runs are never revived.
@@ -356,8 +362,8 @@ updates to avoid dispatching the same retry twice.
 The retry scan handles due `RETRYING` steps on `RUNNING` workflows. It scans
 up to 100 eligible workflows per iteration and preserves attempt counts until a
 worker claims the next attempt. Scheduler and worker must use the same database,
-Redis instance, and queue. When using custom queues, use a separate database per
-queue: queue routing is not stored on workflow records.
+Redis instance, and queue. Custom queues may share a database: retry, lease, and
+READY scans filter by the queue persisted on each workflow.
 
 Inspect the current failure and retry state:
 
@@ -366,8 +372,9 @@ docker compose exec postgres psql -U relay -d relay -c 'SELECT workflow_run_id, 
 ```
 
 If retry dispatch fails after commit, `QueueDispatchError` identifies the saved
-run and ready steps for manual dispatch retry. The database-to-Redis crash window
-still applies; the scheduler does not automatically recover already `READY` jobs.
+run and ready steps. The READY scan restores their delivery. Continuous schedulers
+log transient database or Redis errors and retry later; `--once` exits with an error
+so callers can detect a failed scan.
 Use Ctrl-C to stop the scheduler. Run `docker compose exec api pytest --integration`
 to verify failure isolation, retry timing, exhaustion, and scheduler restarts.
 
@@ -437,8 +444,7 @@ Restart a killed service with `docker compose start worker-1`. Stop the runtime
 services with `docker compose stop worker-1 worker-2 scheduler`.
 
 Lease fencing protects database state; it cannot undo external side effects from
-a handler that continues after losing its lease. The database-to-Redis dispatch
-window also remains. Existing `RUNNING` records created by older, unleased workers
+a handler that continues after losing its lease. Existing `RUNNING` records created by older, unleased workers
 have no expiry and require manual inspection; restart old worker processes before
 using recovery. The test suite includes real process termination, lease renewal,
 stale-result rejection, concurrent recovery scans, and retry exhaustion.

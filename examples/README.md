@@ -83,11 +83,10 @@ ordering and the polling lifecycle.
 | Keep idempotency keys stable through retries and recovery | `test_idempotency.py` |
 | Cancel without starting new steps or reviving the run | `test_workflows_api.py` |
 
-These tests validate recovery for steps with committed leases. Postgres state
-updates and Redis dispatch are still separate operations. A crash after committing
-READY but before enqueueing, or after dequeueing but before claiming, can leave
-work undispatched. There is not yet an outbox or a reconciliation scan for these
-READY steps. Queue delivery recovery is the next reliability improvement.
+READY delivery recovery is covered in `test_dispatch.py`: failed initial and
+downstream dispatch, lost messages before claim, concurrent scans, queue routing,
+and terminal workflows. Keep the scheduler running to restore lost READY messages
+as well as expired leases. Delivery repair does not consume a handler attempt.
 
 Handlers may run again after a lease expires. The lease token fences database
 results; it cannot undo external side effects. Use the stable idempotency key with

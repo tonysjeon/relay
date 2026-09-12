@@ -26,6 +26,7 @@ def recover_abandoned_steps(
             session.scalars(
                 select(WorkflowRun.id)
                 .where(
+                    WorkflowRun.queue_name == queue_name,
                     select(StepRun.id)
                     .where(StepRun.workflow_run_id == WorkflowRun.id, *expired)
                     .exists()

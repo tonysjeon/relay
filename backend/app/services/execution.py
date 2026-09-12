@@ -114,6 +114,7 @@ def execute_step(
             "worker_id": owner,
         }
         workflow_run_id = run.id
+        queue_name = run.queue_name
         attempt = claimed.attempt_count
 
     # Commit the claim and release the connection before invoking user code.
