@@ -28,9 +28,17 @@ def generate(ctx):
     prompt = ctx["workflow_input"]["prompt"]
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000:
         raise ValueError("prompt must contain 1 to 4000 characters")
-    request = {"input": prompt, "max_output_tokens": 512, "store": False}
+    request = {
+        "input": prompt,
+        "max_output_tokens": 512,
+        "store": False,
+        "service_tier": "default",
+    }
     with relay.llm_call(
-        provider="openai", model=settings.openai_model, input=request
+        provider="openai",
+        model=settings.openai_model,
+        input=request,
+        service_tier="default",
     ) as call:
         try:
             with OpenAI(
@@ -59,6 +67,9 @@ def generate(ctx):
             result,
             input_tokens=response.usage.input_tokens if response.usage else None,
             output_tokens=response.usage.output_tokens if response.usage else None,
+            cached_input_tokens=response.usage.input_tokens_details.cached_tokens
+            if response.usage
+            else None,
         )
     return result
 

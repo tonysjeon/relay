@@ -563,6 +563,7 @@ td.mono {
 }
 .run-summary {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 34px;
   border: 1px solid var(--line);

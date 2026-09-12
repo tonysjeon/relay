@@ -26,6 +26,7 @@ def test_openai_request_and_tracking(database, monkeypatch, outcome):
             "input": "Hello",
             "max_output_tokens": 512,
             "store": False,
+            "service_tier": "default",
         }
         if outcome == "unauthorized":
             return httpx.Response(
@@ -93,6 +94,8 @@ def test_openai_request_and_tracking(database, monkeypatch, outcome):
         assert detail.status == call.status == "COMPLETED"
         assert call.output["text"] == "Hello back"
         assert call.input_tokens == 3 and call.output_tokens == 4
+        assert call.cached_input_tokens == 0
+        assert str(call.estimated_cost_usd) == "0.000007600000"
         assert call.output["response_id"] == "resp_offline"
     else:
         assert detail.status == call.status == "FAILED"

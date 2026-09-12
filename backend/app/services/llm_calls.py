@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import LLMCall, StepAttempt, StepRun, WorkflowRun
 from app.services.leases import lease_conditions
+from app.services.pricing import estimate_cost, pricing_snapshot
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,8 @@ def _json(value):
 
 
 class CallResult:
-    def __init__(self):
+    def __init__(self, pricing=None):
+        self.pricing = pricing
         self.values = None
         self.active = True
 
@@ -51,13 +53,22 @@ class CallResult:
         *,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cached_input_tokens: int | None = None,
     ) -> None:
         if not self.active or self.values is not None:
             raise RuntimeError("Set the call result once, inside its context")
-        for value in (input_tokens, output_tokens):
+        for value in (input_tokens, output_tokens, cached_input_tokens):
             if value is not None and (type(value) is not int or value < 0):
                 raise ValueError("Token counts must be non-negative integers or None")
+        if cached_input_tokens is not None and (
+            input_tokens is None or cached_input_tokens > input_tokens
+        ):
+            raise ValueError("Cached tokens must be a subset of input tokens")
         self.values = {
+            "cached_input_tokens": cached_input_tokens,
+            "estimated_cost_usd": estimate_cost(
+                self.pricing, input_tokens, output_tokens, cached_input_tokens
+            ),
             "output": _json(output),
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
@@ -99,7 +110,7 @@ def _finish(execution, call_id, status, values):
 
 
 @contextmanager
-def llm_call(*, provider: str, model: str, input: Any):
+def llm_call(*, provider: str, model: str, input: Any, service_tier: str | None = None):
     """Wrap one provider call; explicitly record its response and optional usage."""
     execution = _current.get()
     if execution is None:
@@ -112,6 +123,7 @@ def llm_call(*, provider: str, model: str, input: Any):
     ):
         raise ValueError("provider and model must be non-empty strings")
     payload = _json(input)
+    pricing = pricing_snapshot(provider, model, service_tier)
     with Session(execution.engine) as session, session.begin():
         if _lock_step(session, execution) is None:
             raise RuntimeError("Cannot start an LLM call after losing the step lease")
@@ -130,12 +142,13 @@ def llm_call(*, provider: str, model: str, input: Any):
             provider=provider,
             model=model,
             input=payload,
+            pricing=pricing,
             status="RUNNING",
         )
         session.add(call)
         session.flush()
         call_id = call.id
-    result = CallResult()
+    result = CallResult(pricing)
     try:
         yield result
         if result.values is None:

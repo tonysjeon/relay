@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Detail, Run, Step, LLMCall } from "@/lib/types";
 import { startPolling } from "@/lib/polling";
+import { cost, tokenTotal, usageCost } from "@/lib/usage";
 import { orderSteps } from "@/lib/steps";
 import { Icon } from "@/components/icons";
 
@@ -50,6 +51,8 @@ function ModelCalls({ calls }: { calls: LLMCall[] }) {
           <dl className="facts">
             <div><dt>Duration</dt><dd>{duration(call)}</dd></div>
             <div><dt>Input tokens</dt><dd>{call.input_tokens ?? "Not reported"}</dd></div>
+            <div><dt>Cached input tokens</dt><dd>{call.cached_input_tokens ?? "Not reported"}</dd></div>
+            <div><dt>Est. cost (USD)</dt><dd>{cost(call.estimated_cost_usd)}</dd></div>
             <div><dt>Output tokens</dt><dd>{call.output_tokens ?? "Not reported"}</dd></div>
             <div><dt>Started</dt><dd>{date(call.started_at)}</dd></div>
             <div><dt>Finished</dt><dd>{date(call.completed_at)}</dd></div>
@@ -339,6 +342,8 @@ export function Dashboard({ runId }: { runId?: string }) {
                   <th>Status</th>
                   <th className="created-column">Created</th>
                   <th>Duration</th>
+                  <th>Tokens</th>
+                  <th>Est. cost</th>
                   <th>
                     <span className="sr-only">Details</span>
                   </th>
@@ -384,6 +389,8 @@ export function Dashboard({ runId }: { runId?: string }) {
                       </time>
                     </td>
                     <td className="mono">{duration(run)}</td>
+                    <td className="mono">{tokenTotal(run.usage)}</td>
+                    <td className="mono">{usageCost(run.usage)}</td>
                     <td>
                       <Link
                         aria-label={`Inspect ${run.workflow_name} ${run.id}`}
@@ -436,6 +443,7 @@ export function Dashboard({ runId }: { runId?: string }) {
       )}
       {runId && detail && (
         <>
+          <p className="muted">Tracked model usage across all attempts. Cost estimates cover text tokens; unknown usage and other provider charges are excluded.</p>
           <section className="run-summary">
             <Status value={detail.status} />
             <div>
@@ -445,6 +453,14 @@ export function Dashboard({ runId }: { runId?: string }) {
             <div>
               <span>Duration</span>
               <strong className="mono">{duration(detail)}</strong>
+            </div>
+            <div>
+              <span>Tokens (all attempts)</span>
+              <strong className="mono">{tokenTotal(detail.usage)}</strong>
+            </div>
+            <div>
+              <span>Est. cost (USD)</span>
+              <strong className="mono">{usageCost(detail.usage)}</strong>
             </div>
             <div>
               <span>Steps completed</span>

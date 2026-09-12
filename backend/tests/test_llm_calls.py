@@ -155,3 +155,43 @@ def test_parallel_handlers_keep_call_context_separate(database):
     for _, run_id, step_id in (first, second):
         call = workflow_detail(database, run_id).steps[0].attempts[0].llm_calls[0]
         assert call.input == call.output == f"{run_id}:work"
+
+
+@pytest.mark.integration
+def test_usage_totals_include_prior_attempts_and_unknown_calls(database):
+    from decimal import Decimal
+
+    from app.services.workflow_api import list_workflows
+
+    attempt = 0
+
+    def handler(ctx):
+        nonlocal attempt
+        attempt += 1
+        with relay.llm_call(
+            provider="openai", model="gpt-4.1-mini", input="hi", service_tier="default"
+        ) as call:
+            call.set_result(
+                "hi", input_tokens=1000, output_tokens=500, cached_input_tokens=200
+            )
+        with relay.llm_call(provider="other", model="unknown", input="hi") as call:
+            call.set_result("hi", input_tokens=10, output_tokens=20)
+        if attempt == 1:
+            raise ValueError("retry")
+        return "done"
+
+    workflow, run_id, step_id = make_run(database, handler)
+    execute(database, workflow, step_id)
+    with Session(database) as session, session.begin():
+        step = session.get(StepRun, step_id)
+        step.next_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    schedule_retries(database, redis=Mock())
+    execute(database, workflow, step_id)
+    usage = workflow_detail(database, run_id).usage
+    assert usage.calls == 4
+    assert usage.input_tokens == 2020 and usage.output_tokens == 1040
+    assert usage.missing_token_calls == 0
+    assert usage.estimated_cost_usd == Decimal("0.00228")
+    assert usage.unpriced_calls == 2
+    listed = next(run for run in list_workflows(database) if run.id == run_id)
+    assert listed.usage == usage

@@ -14,8 +14,8 @@ requirement.
 
 The original deferred list below is now a pool of future product work. This
 increment adds call tracking; MCP, human approvals, scheduling, and other items
-will be prioritized separately. Automatic provider instrumentation, pricing/cost
-estimation, and streaming event history are not part of this increment.
+will be prioritized separately. This increment also adds token totals and saved text-token cost estimates. Automatic
+provider instrumentation and streaming event history remain deferred.
 
 ## Overview
 

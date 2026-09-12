@@ -2,7 +2,16 @@ export type RunStatus =
   "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 export type StepStatus =
   "PENDING" | "READY" | "RUNNING" | "RETRYING" | "COMPLETED" | "FAILED";
+export type Usage = {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  missing_token_calls: number;
+  estimated_cost_usd: string;
+  unpriced_calls: number;
+};
 export type Run = {
+  usage?: Usage;
   id: string;
   workflow_name: string;
   status: RunStatus;
@@ -13,6 +22,8 @@ export type Run = {
 };
 export type LLMCall = {
   id: string;
+  cached_input_tokens: number | null;
+  estimated_cost_usd: string | null;
   provider: string;
   model: string;
   input: unknown;

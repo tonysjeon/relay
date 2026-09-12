@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -10,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -146,12 +148,20 @@ class LLMCall(Base):
         CheckConstraint(
             "input_tokens >= 0 AND output_tokens >= 0", name="ck_llm_tokens"
         ),
+        CheckConstraint(
+            "cached_input_tokens >= 0 AND cached_input_tokens <= input_tokens",
+            name="ck_llm_cached_tokens",
+        ),
+        CheckConstraint("estimated_cost_usd >= 0", name="ck_llm_cost"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     step_attempt_id: Mapped[UUID] = mapped_column(
         ForeignKey("step_attempts.id", ondelete="CASCADE"), index=True
     )
+    cached_input_tokens: Mapped[int | None] = mapped_column(Integer)
+    pricing: Mapped[dict | None] = mapped_column(JSONB)
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(24, 12))
     provider: Mapped[str] = mapped_column(String)
     model: Mapped[str] = mapped_column(String)
     input: Mapped[Any] = mapped_column(JSONB, nullable=False)

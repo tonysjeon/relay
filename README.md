@@ -689,3 +689,25 @@ limit, and no SDK or workflow retries. It incurs OpenAI API usage. Missing keys
 fail before submission; API failures appear in attempt history. Refusal, incomplete,
 and empty text responses fail the test. Unit/integration tests use an offline HTTP
 transport and never make paid calls. The core tracking API remains provider-neutral.
+
+
+### Token totals and cost estimates
+
+Runs list and detail responses include `usage`: recorded input/output totals,
+call count, missing-token call count, estimated USD cost, and unpriced call count.
+Totals include all attempts, including calls made before a step failed or retried.
+Cached input tokens are a subset of input tokens, not additional tokens.
+
+For standard OpenAI text requests, pass `service_tier="default"` to
+`relay.llm_call` and `cached_input_tokens` to `call.set_result`.
+The OpenAI test workflow does this automatically and requests the default tier.
+Pricing currently covers `gpt-4.1-mini` and `gpt-4.1-mini-2025-04-14` only:
+$0.40 input, $0.10 cached input, and $1.60 output per million tokens
+([OpenAI pricing](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
+verified September 12, 2026). Rates are saved with each new call; later pricing
+updates do not change recorded estimates.
+
+Unsupported models/tiers, missing usage, and older calls without saved pricing
+show Unknown. Partial totals show “+ unknown”; no tracked calls show a dash.
+Estimates cover text tokens only, excluding tool fees and other provider charges.
+Timeouts may incur provider charges without returning usage to Relay.

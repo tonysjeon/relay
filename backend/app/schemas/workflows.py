@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
@@ -7,10 +8,20 @@ from pydantic import BaseModel, ConfigDict
 from app.models import StepStatus, WorkflowStatus
 
 
+class UsageResponse(BaseModel):
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    missing_token_calls: int = 0
+    estimated_cost_usd: Decimal = Decimal(0)
+    unpriced_calls: int = 0
+
+
 class WorkflowResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    usage: UsageResponse = UsageResponse()
     workflow_name: str
     status: WorkflowStatus
     input: dict[str, Any]
@@ -23,6 +34,9 @@ class LLMCallResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    cached_input_tokens: int | None
+    pricing: dict | None
+    estimated_cost_usd: Decimal | None
     provider: str
     model: str
     input: Any
