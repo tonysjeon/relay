@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
+import { TopbarActions } from "@/components/topbar-actions";
 import { startPolling } from "@/lib/polling";
 
 type CodingSession = {session_id: string; cwd: string; model: string | null; event_count: number; last_event: string; last_seen: string};
@@ -52,10 +53,10 @@ export function CodingSessions({sessionId}: {sessionId?: string}) {
         <h1>{sessionId ? "Codex session" : "Coding sessions"}</h1>
         <p className="subtitle">{sessionId ? sessionId : "Activity from connected coding tools"}</p>
       </div>
-      <div className="heading-actions">
+      <TopbarActions><div className="heading-actions">
         <button className="refresh" onClick={() => refresh.current()}><Icon name="refresh" /> Refresh</button>
         <span className="update-line">{error ? "Disconnected" : loaded ? "Live · Updates every 2s" : "Connecting…"}</span>
-      </div>
+      </div></TopbarActions>
     </div>
     {error && <p role="alert" className="error-banner">{error}</p>}
     {!loaded && !error && <p className="empty-inline">Loading activity…</p>}

@@ -6,6 +6,7 @@ import { startPolling } from "@/lib/polling";
 import { cost, tokenTotal, usageCost } from "@/lib/usage";
 import { orderSteps } from "@/lib/steps";
 import { Icon } from "@/components/icons";
+import { TopbarActions } from "@/components/topbar-actions";
 
 function Status({ value }: { value: string }) {
   return (
@@ -298,38 +299,8 @@ export function Dashboard({ runId }: { runId?: string }) {
               : "Execution history"}
           </p>
         </div>
-        <div className="heading-actions">
-          <button className="refresh" onClick={reload} disabled={loading}>
-            <Icon name="refresh" /> {loading ? "Refreshing…" : "Refresh"}
-          </button>
-          <span className="update-line">
-            {error
-              ? updated
-                ? `Reconnecting · Last updated ${updated}`
-                : "Data unavailable"
-              : updated
-                ? `Live · ${updated}`
-                : "Connecting…"}
-          </span>
-        </div>
-      </div>
-      {error && (
-        <div className="error-banner" role="alert">
-          <strong>
-            {updated ? "Unable to refresh data" : "Unable to load data"}
-          </strong>
-          <p>{error}</p>
-          <button onClick={reload}>Try again</button>
-        </div>
-      )}
-      {!error && loading && !updated && (
-        <div className="empty" role="status">
-          Loading workflow data…
-        </div>
-      )}
-      {!runId && (
-        <section className="runs-panel" aria-label="Workflow runs">
-          <div className="toolbar">
+        {!runId && (
+          <div className="run-controls">
             <div>
               <h2>
                 Runs{" "}
@@ -337,7 +308,6 @@ export function Dashboard({ runId }: { runId?: string }) {
                   {loading ? "…" : `${runs.length ? `${page * 20 + 1}–${page * 20 + runs.length}` : "0"} of ${total ?? "—"}`}
                 </span>
               </h2>
-              <p className="muted">Newest first</p>
             </div>
             <label className="status-filter">
               <Icon name="filter" />
@@ -360,6 +330,40 @@ export function Dashboard({ runId }: { runId?: string }) {
               </select>
             </label>
           </div>
+        )}
+        <TopbarActions>
+          <div className="heading-actions">
+            <button className="refresh" onClick={reload} disabled={loading}>
+              <Icon name="refresh" /> {loading ? "Refreshing…" : "Refresh"}
+            </button>
+            <span className="update-line">
+              {error
+                ? updated
+                  ? `Reconnecting · Last updated ${updated}`
+                  : "Data unavailable"
+                : updated
+                  ? `Live · ${updated}`
+                  : "Connecting…"}
+            </span>
+          </div>
+        </TopbarActions>
+      </div>
+      {error && (
+        <div className="error-banner" role="alert">
+          <strong>
+            {updated ? "Unable to refresh data" : "Unable to load data"}
+          </strong>
+          <p>{error}</p>
+          <button onClick={reload}>Try again</button>
+        </div>
+      )}
+      {!error && loading && !updated && (
+        <div className="empty" role="status">
+          Loading workflow data…
+        </div>
+      )}
+      {!runId && (
+        <section className="runs-panel" aria-label="Workflow runs">
           <div className="table-wrap">
             <table className="workflow-table">
               <thead>

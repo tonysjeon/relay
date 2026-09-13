@@ -44,7 +44,10 @@ export default function Layout({
               <Icon name="chevron-right" />
               <WorkspaceSection />
             </div>
-            <span className="environment">Local</span>
+            <div className="topbar-right">
+              <span className="environment">Local</span>
+              <div id="topbar-actions" />
+            </div>
           </header>
           <main id="main">{children}</main>
           <footer>
