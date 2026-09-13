@@ -358,7 +358,7 @@ export function Dashboard({ runId }: { runId?: string }) {
             </label>
           </div>
           <div className="table-wrap">
-            <table>
+            <table className="workflow-table">
               <thead>
                 <tr>
                   <th>Workflow</th>
@@ -367,9 +367,6 @@ export function Dashboard({ runId }: { runId?: string }) {
                   <th className="numeric">Duration</th>
                   <th className="numeric">Tokens</th>
                   <th className="numeric">Est. cost</th>
-                  <th>
-                    <span className="sr-only">Details</span>
-                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -411,15 +408,6 @@ export function Dashboard({ runId }: { runId?: string }) {
                     <td className="mono numeric">{duration(run)}</td>
                     <td className="mono numeric">{tokenTotal(run.usage)}</td>
                     <td className="mono numeric">{usageCost(run.usage)}</td>
-                    <td>
-                      <Link
-                        aria-label={`Inspect ${run.workflow_name} ${run.id}`}
-                        className="arrow"
-                        href={`/workflows/${run.id}`}
-                      >
-                        <Icon name="chevron-right" />
-                      </Link>
-                    </td>
                   </tr>
                 ))}
               </tbody>
