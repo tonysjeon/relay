@@ -9,3 +9,7 @@ node_modules/
 *.tsbuildinfo
 .env.local
 .env.*.local
+
+.relay/
+
+/.codex/hooks.json

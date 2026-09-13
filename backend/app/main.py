@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.activity import router as activity_router
 from app.api.health import router
 from app.api.workers import router as workers_router
 from app.api.workflows import router as workflows_router
@@ -30,3 +31,5 @@ app = FastAPI(title="Relay", lifespan=lifespan)
 app.include_router(router)
 app.include_router(workers_router)
 app.include_router(workflows_router)
+
+app.include_router(activity_router)

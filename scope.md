@@ -20,6 +20,9 @@ provider instrumentation and streaming event history remain deferred.
 Human approval steps now let a handler prepare output, release its worker, and
 wait for a persisted approve/reject decision before dependent steps can run.
 
+Codex hook integration adds externally observed coding-session activity in its own
+timeline. These sessions are not managed by the Relay workflow runtime.
+
 ## Overview
 
 Relay is a lightweight, fault-tolerant workflow runtime for long-running AI and backend tasks.

@@ -31,6 +31,10 @@ export default function Layout({
               Workflow runs
               <Icon name="chevron-right" className="nav-chevron" />
             </Link>
+            <Link href="/coding-sessions" className="nav-item">
+              <Icon name="code" /> Coding sessions
+              <Icon name="chevron-right" className="nav-chevron" />
+            </Link>
           </nav>
           <div className="sidebar-foot">
             <span className="workspace-icon">

@@ -743,3 +743,61 @@ scheduler recovers the saved READY work on the run's queue.
 Keep side effects such as sending or publishing in a dependent step: the review
 happens **after** the marked handler executes. This local workspace has no user
 authentication, so review decisions are not identity-verified audit records.
+
+### Codex activity
+
+Relay can observe everyday Codex activity through the official
+[Codex hooks](https://learn.chatgpt.com/docs/hooks) interface. This creates a
+separate **Coding sessions** timeline; it does not create workflow runs or control
+Codex approvals. No OpenAI API key is required for the adapter.
+
+With Relay running and migrations applied, install hooks for a repository:
+
+```bash
+python3 /absolute/path/to/relay/backend/app/integrations/codex_hook.py --install /absolute/path/to/your/repo
+```
+
+The installer merges entries into that repository's `.codex/hooks.json`, preserving
+other hooks. It uses an absolute adapter path, so reinstall if you move Relay.
+Open Codex CLI in that repository and use `/hooks` to review and trust the Relay
+hooks. Codex skips new or changed untrusted hooks. Start or resume a task after
+trusting them, then open [Coding sessions](http://localhost:3010/coding-sessions).
+
+The adapter records session starts/ends, prompt submission, tool start/return,
+turn stop, and interruption events, with session/turn IDs, working directory,
+model (when reported), and tool names. It records observation time and receipt
+time; asynchronous delivery can arrive out of order. “Tool returned” does not
+guarantee success, and the last event is not a live worker heartbeat.
+Hosted tools and paths that Codex excludes from hooks will not appear.
+
+Metadata is captured by default. To also capture prompts and final turn responses,
+rerun the installer with `--capture-content`, then trust the updated definitions.
+Text is capped at 8,000 characters with best-effort credential redaction; use
+metadata-only mode for sensitive conversations. Raw tool arguments, tool output,
+environment variables, files, and transcripts are never collected by this adapter.
+Hooks do not provide reliable usage totals; token counts and costs remain unknown.
+
+The adapter sends only to a loopback HTTP origin (default `http://localhost:8010`;
+override with `--url`). It buffers events in `.relay/coding-events.sqlite3` within
+the connected repository and retries on subsequent hooks. Add `.relay/` to that
+repository's ignore file. The buffer retains at most 10,000 events, dropping the
+oldest on overflow. Capture is best effort if the process is killed, the input
+exceeds 1 MiB, or the local buffer cannot be written. Delivery attempts are bounded
+and never block, approve, or steer the coding task.
+
+To drain pending events manually from the connected repository:
+
+```bash
+python3 /absolute/path/to/relay/backend/app/integrations/codex_hook.py --flush
+```
+
+Each invocation drains a bounded batch; repeat while a backlog remains.
+Events carry stable IDs so redelivery is deduplicated. The local API exposes
+`POST /coding-sessions/events`, `GET /coding-sessions`, and
+`GET /coding-sessions/{id}/events` (latest 100 by default; use `after=0` and
+sequence cursors for complete history). These endpoints share Relay's existing
+local, unauthenticated access model.
+
+Disable the Relay hooks through `/hooks` or remove their entries from the
+repository's `.codex/hooks.json` to stop collection. No historical transcripts
+are imported.
