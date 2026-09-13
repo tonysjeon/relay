@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import StepDependency, StepRun, StepStatus, WorkflowRun
+from app.models import StepAttempt, StepDependency, StepRun, StepStatus, WorkflowRun
 
 
 def create_workflow_run(
@@ -68,7 +68,9 @@ def get_workflow_run(session: Session, workflow_run_id: UUID) -> WorkflowRun | N
         select(WorkflowRun)
         .where(WorkflowRun.id == workflow_run_id)
         .options(
-            selectinload(WorkflowRun.steps).selectinload(StepRun.attempts),
+            selectinload(WorkflowRun.steps)
+            .selectinload(StepRun.attempts)
+            .selectinload(StepAttempt.llm_calls),
             selectinload(WorkflowRun.dependencies),
         )
         .execution_options(populate_existing=True)

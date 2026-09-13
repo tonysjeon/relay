@@ -26,6 +26,7 @@ from app.services.attempts import finish_attempt
 from app.services.dependencies import unlock_dependents
 from app.services.failures import record_failure
 from app.services.leases import keep_lease, lease_conditions
+from app.services.llm_calls import track_execution
 from app.services.queue import JOB_QUEUE, enqueue_steps
 from app.services.workflow_status import refresh_workflow_status
 from app.services.workflows import QueueDispatchError
@@ -136,7 +137,10 @@ def execute_step(
 
     # Commit the claim and release the connection before invoking user code.
     logger.info(json.dumps({"event": "step_started", **log_fields}))
-    with keep_lease(engine, step_run_id, owner, attempt, duration) as lost:
+    with (
+        keep_lease(engine, step_run_id, owner, attempt, duration) as lost,
+        track_execution(engine, workflow_run_id, step_run_id, owner, attempt),
+    ):
         try:
             output = handler(context)
             json.dumps(output, allow_nan=False)

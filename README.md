@@ -6,8 +6,7 @@ steps, and multiple workers that execute steps and unlock their dependents.
 
 ## Run
 
-Install Docker with Docker Compose, then run from the repository root. No API keys
-or external services are required. Copy the example environment only on first setup:
+Install Docker with Docker Compose, then run from the repository root. The core stack and four local examples require no API keys. Copy the example environment only on first setup:
 
 ```bash
 cp .env.example .env
@@ -583,7 +582,7 @@ docker compose exec api python -m app.examples linear
 Use `parallel`, `retry`, or `crash` in place of `linear`. Start the Compose
 `runtime` profile to run the two workers and scheduler, and follow the printed
 run UUID in the dashboard. The retry example fails twice before succeeding on its
-third attempt. All examples run locally without API keys.
+third attempt. These four examples run locally without API keys.
 
 ## Step attempt history
 
@@ -604,3 +603,111 @@ Restart workers and the scheduler after applying migrations. Earlier attempts
 cannot be reconstructed and are not backfilled; the dashboard identifies missing
 history. Inputs and outputs remain on the step rather than being copied into each
 attempt. Deleting a step or workflow also deletes its attempt records.
+
+## Track your own LLM calls
+
+Relay records model calls made by your synchronous step handlers, regardless of
+provider. Install and configure your chosen SDK in the worker environment, then
+wrap the call explicitly. Relay does not make model requests or need its own API
+key. The following adapter-shaped example assumes your application supplies
+`model_client` and maps its response fields:
+
+```python
+from app import relay
+
+def summarize(ctx):
+    prompt = {"text": ctx["workflow_input"]["text"], "instruction": "Summarize"}
+    with relay.llm_call(provider="your-provider", model="your-model", input=prompt) as call:
+        response = model_client.generate(prompt)
+        call.set_result(
+            response.text,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+    return {"summary": response.text}
+```
+
+`input` and the result must be JSON-serializable; convert SDK objects to plain
+values first. Token counts are optional non-negative integers. Omitted usage is
+shown as “Not reported”, not zero. Record a result exactly once before leaving the
+context, including `None` for an explicit JSON-null result. Multiple model calls
+can be recorded within one attempt.
+
+Open a run, select a step, and expand **LLM calls** within its attempt history to
+inspect prompts, responses, provider/model, duration, token counts, and outcome.
+Workflow detail and steps API responses include `attempts[].llm_calls` in start
+order. Failed calls remain visible after a retry, which creates new records.
+Calls interrupted by lease expiry become ABANDONED when recovery runs; late
+workers cannot overwrite them. Recorded call duration includes the wrapped code
+and ends at recovery detection for abandoned calls, not the exact process death.
+
+Only data explicitly supplied to the wrapper is captured. Omit credentials and
+redact sensitive prompt fields before recording: recorded values are stored in
+PostgreSQL and exposed through the local API/dashboard. Call errors retain the
+exception class. Exceptions propagate normally to your handler and Relay's step
+failure handling, whose existing step error may include the exception message.
+The wrapper does not intercept SDK internals, subprocesses, or child threads.
+Its context is scoped to the executing handler and cleared afterward. For
+streaming SDKs, consume the stream and record the final response inside the block.
+
+Apply migration `0004` and restart workers/scheduler before using the wrapper.
+Existing attempts have an empty call list; no earlier prompts can be recovered.
+Tracking writes are required: a storage failure can fail the step. Model calls
+may be billed again on retries or crashes; recording them does not make provider
+requests exactly-once. Usage counts describe reported successful results, not a
+complete billing ledger. Automatic pricing and provider-specific instrumentation
+remain future work.
+
+## Test tracking with OpenAI
+
+Put `OPENAI_API_KEY=your-key` in your local `.env`; never put a key in the prompt,
+source code, or chat. `OPENAI_MODEL` defaults to `gpt-4.1-mini`, and
+`OPENAI_TIMEOUT_SECONDS` defaults to 60. The model must support the
+[Responses API](https://developers.openai.com/api/docs/guides/text).
+
+Rebuild the API, apply migrations, and submit to a dedicated test queue:
+
+```bash
+docker compose up --build -d --wait api
+docker compose exec api alembic upgrade head
+docker compose exec api python -m app.examples openai --queue relay:openai-test --prompt "Explain retries in one sentence."
+docker compose exec api python -m app.workers.worker --once --queue relay:openai-test
+```
+
+The first Python command prints the run ID; the second consumes one job and exits.
+Use a fresh queue name if you have old queued tests. No scheduler or continuously
+running workers are needed for this one-step test. If the dashboard has not been
+rebuilt for LLM tracking, run `docker compose up --build -d --wait frontend`.
+
+Open the run at http://localhost:3010, select **generate**, and expand its model
+call under **Attempt history**. Verify the submitted prompt, returned text,
+provider/model, input/output token counts, duration, and COMPLETED status. Raw
+output includes the response ID and the model reported by OpenAI.
+
+The test uses one Responses call, a 512-output-token limit, a 4000-character prompt
+limit, and no SDK or workflow retries. It incurs OpenAI API usage. Missing keys
+fail before submission; API failures appear in attempt history. Refusal, incomplete,
+and empty text responses fail the test. Unit/integration tests use an offline HTTP
+transport and never make paid calls. The core tracking API remains provider-neutral.
+
+
+### Token totals and cost estimates
+
+Runs list and detail responses include `usage`: recorded input/output totals,
+call count, missing-token call count, estimated USD cost, and unpriced call count.
+Totals include all attempts, including calls made before a step failed or retried.
+Cached input tokens are a subset of input tokens, not additional tokens.
+
+For standard OpenAI text requests, pass `service_tier="default"` to
+`relay.llm_call` and `cached_input_tokens` to `call.set_result`.
+The OpenAI test workflow does this automatically and requests the default tier.
+Pricing currently covers `gpt-4.1-mini` and `gpt-4.1-mini-2025-04-14` only:
+$0.40 input, $0.10 cached input, and $1.60 output per million tokens
+([OpenAI pricing](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
+verified September 12, 2026). Rates are saved with each new call; later pricing
+updates do not change recorded estimates.
+
+Unsupported models/tiers, missing usage, and older calls without saved pricing
+show Unknown. Partial totals show “+ unknown”; no tracked calls show a dash.
+Estimates cover text tokens only, excluding tool fees and other provider charges.
+Timeouts may incur provider charges without returning usage to Relay.

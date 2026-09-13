@@ -1,12 +1,13 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import WorkflowRun, WorkflowStatus
+from app.models import LLMCall, StepAttempt, StepRun, WorkflowRun, WorkflowStatus
 from app.schemas.workflows import (
     StepResponse,
+    UsageResponse,
     WorkflowDetailResponse,
     WorkflowResponse,
 )
@@ -19,6 +20,45 @@ class WorkflowNotFound(LookupError):
 
 class WorkflowConflict(ValueError):
     pass
+
+
+def usage_totals(session, run_ids):
+    if not run_ids:
+        return {}
+    query = (
+        select(
+            StepRun.workflow_run_id,
+            func.count(LLMCall.id).label("calls"),
+            func.coalesce(func.sum(LLMCall.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(LLMCall.output_tokens), 0).label("output_tokens"),
+            func.count(LLMCall.id)
+            .filter(
+                or_(LLMCall.input_tokens.is_(None), LLMCall.output_tokens.is_(None))
+            )
+            .label("missing_token_calls"),
+            func.coalesce(func.sum(LLMCall.estimated_cost_usd), 0).label(
+                "estimated_cost_usd"
+            ),
+            func.count(LLMCall.id)
+            .filter(LLMCall.estimated_cost_usd.is_(None))
+            .label("unpriced_calls"),
+        )
+        .select_from(StepRun)
+        .join(StepAttempt, StepAttempt.step_run_id == StepRun.id)
+        .join(LLMCall, LLMCall.step_attempt_id == StepAttempt.id)
+        .where(StepRun.workflow_run_id.in_(run_ids))
+        .group_by(StepRun.workflow_run_id)
+    )
+    return {
+        row.workflow_run_id: UsageResponse(**row._mapping)
+        for row in session.execute(query)
+    }
+
+
+def run_response(session, run):
+    return WorkflowResponse.model_validate(run).model_copy(
+        update={"usage": usage_totals(session, [run.id]).get(run.id, UsageResponse())}
+    )
 
 
 def list_workflows(
@@ -37,7 +77,14 @@ def list_workflows(
     if status is not None:
         query = query.where(WorkflowRun.status == status)
     with Session(engine) as session:
-        return [WorkflowResponse.model_validate(run) for run in session.scalars(query)]
+        runs = list(session.scalars(query))
+        totals = usage_totals(session, [run.id for run in runs])
+        return [
+            WorkflowResponse.model_validate(run).model_copy(
+                update={"usage": totals.get(run.id, UsageResponse())}
+            )
+            for run in runs
+        ]
 
 
 def workflow_detail(engine: Engine, run_id: UUID) -> WorkflowDetailResponse:
@@ -55,7 +102,7 @@ def workflow_detail(engine: Engine, run_id: UUID) -> WorkflowDetailResponse:
             for step in run.steps
         ]
         return WorkflowDetailResponse(
-            **WorkflowResponse.model_validate(run).model_dump(), steps=steps
+            **run_response(session, run).model_dump(), steps=steps
         )
 
 
@@ -73,4 +120,4 @@ def cancel_workflow(engine: Engine, run_id: UUID) -> WorkflowResponse:
         if run.status != WorkflowStatus.CANCELLED:
             run.status = WorkflowStatus.CANCELLED
             run.completed_at = datetime.now(timezone.utc)
-        return WorkflowResponse.model_validate(run)
+        return run_response(session, run)

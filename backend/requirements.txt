@@ -5,3 +5,4 @@ psycopg[binary]>=3.2,<4
 redis>=5.2,<7
 pydantic-settings>=2.7,<3
 alembic>=1.14,<2
+openai>=2,<3

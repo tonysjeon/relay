@@ -92,3 +92,10 @@ Handlers may run again after a lease expires. The lease token fences database
 results; it cannot undo external side effects. Use the stable idempotency key with
 an external service that actually enforces deduplication. Cancellation likewise
 stops future claims without forcibly terminating arbitrary Python code.
+
+## OpenAI tracking smoke test
+
+Use `python -m app.examples openai --prompt "Explain retries in one sentence."`
+in the API container to submit one tracked OpenAI request. It requires your API
+key and incurs usage charges. Follow the [isolated queue instructions](../README.md#test-tracking-with-openai)
+to execute it once and inspect prompt, response, and usage in the dashboard.

@@ -1,4 +1,5 @@
 from app.models.runs import (
+    LLMCall,
     StepAttempt,
     StepDependency,
     StepRun,
@@ -9,6 +10,7 @@ from app.models.runs import (
 )
 
 __all__ = [
+    "LLMCall",
     "StepAttempt",
     "StepDependency",
     "StepRun",
