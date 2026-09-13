@@ -711,3 +711,35 @@ Unsupported models/tiers, missing usage, and older calls without saved pricing
 show Unknown. Partial totals show “+ unknown”; no tracked calls show a dash.
 Estimates cover text tokens only, excluding tool fees and other provider charges.
 Timeouts may incur provider charges without returning usage to Relay.
+
+### Human approval steps
+
+Mark a step with `requires_approval=True` to review its output before dependent
+steps can run:
+
+```python
+workflow = Workflow("review_content")
+workflow.step("draft", prepare_draft, requires_approval=True)
+workflow.step("publish", publish_draft, depends_on=["draft"])
+```
+
+The handler prepares the proposed output normally. After it succeeds, Relay saves
+the output and enters WAITING_APPROVAL, releases the worker lease, and finishes
+the execution attempt. The workflow remains RUNNING while waiting; independent
+branches may continue. Waiting and decisions survive process restarts.
+
+Open the step in the dashboard to inspect its output, add an optional note, and
+approve or reject. Approval completes the step and unlocks dependents. Rejection
+fails the step and workflow without retrying the review; already-running handlers
+may still finish. Cancelled or failed workflows cannot accept a pending review.
+
+Decisions are also available through
+`POST /workflows/{run_id}/steps/{step_id}/approval` with
+`{"decision": "approved", "note": "Reviewed"}` (or `"rejected"`).
+The decision and timestamp are persisted. An identical repeated request is safe;
+a conflicting decision returns 409. If queue delivery fails after approval, the
+scheduler recovers the saved READY work on the run's queue.
+
+Keep side effects such as sending or publishing in a dependent step: the review
+happens **after** the marked handler executes. This local workspace has no user
+authentication, so review decisions are not identity-verified audit records.

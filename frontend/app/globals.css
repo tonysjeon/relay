@@ -1049,3 +1049,31 @@ footer > span:first-child {
 .model-call summary > span:first-child { overflow-wrap: anywhere; min-width: 0; }
 .model-call[open] summary { margin-bottom: 16px; }
 .model-call summary:focus-visible { outline: 2px solid #5275a9; outline-offset: 4px; }
+
+.status.waiting_approval {
+  background: #fff5dc;
+  color: #906213;
+}
+.approval-banner, .approval-review {
+  background: #fffcf3;
+  border: 1px solid #ebd9a9;
+  border-radius: 9px;
+  padding: 16px;
+}
+.approval-review { margin: 20px 0; }
+.approval-review p { font-size: 12px; line-height: 1.6; }
+.approval-review label { display: block; font-size: 12px; margin: 14px 0 6px; }
+.approval-review textarea {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+.review-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.review-reject { background: white; border: 1px solid #e4bcbc; color: #9a3535; border-radius: 6px; padding: 10px 14px; cursor: pointer; }
+.review-actions button:disabled { opacity: .6; cursor: wait; }
+.review-note { white-space: pre-wrap; overflow-wrap: anywhere; }

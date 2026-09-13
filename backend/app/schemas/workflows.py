@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import StepStatus, WorkflowStatus
 
@@ -63,11 +63,21 @@ class AttemptResponse(BaseModel):
     llm_calls: list[LLMCallResponse] = []
 
 
+class ApprovalRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    note: str = Field(default="", max_length=2000)
+
+
 class StepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     workflow_run_id: UUID
+    requires_approval: bool
+    approval_decision: str | None
+    approval_note: str | None
+    approval_requested_at: datetime | None
+    approval_decided_at: datetime | None
     step_name: str
     status: StepStatus
     input: dict[str, Any] | None

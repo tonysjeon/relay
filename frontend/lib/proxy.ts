@@ -5,6 +5,8 @@ export async function proxy(request: NextRequest, path = "") {
   url.search = request.nextUrl.search;
   try {
     const response = await fetch(url, {
+      method: request.method,
+      ...(request.method === "POST" ? {headers: {"Content-Type": "application/json"}, body: await request.text()} : {}),
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
@@ -14,7 +16,11 @@ export async function proxy(request: NextRequest, path = "") {
           detail:
             response.status === 404
               ? "Workflow not found."
-              : "Unable to load workflow data.",
+              : response.status === 409
+                ? "This review is no longer available. Refresh to see the latest decision."
+                : response.status === 422
+                  ? "Check the decision and review note."
+                  : "Unable to load workflow data.",
         },
         { status: response.status },
       );

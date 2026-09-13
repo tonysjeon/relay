@@ -13,9 +13,12 @@ particular provider or business workflow. Company research is not a product
 requirement.
 
 The original deferred list below is now a pool of future product work. This
-increment adds call tracking; MCP, human approvals, scheduling, and other items
+increment adds call tracking; MCP, scheduling, and other items
 will be prioritized separately. This increment also adds token totals and saved text-token cost estimates. Automatic
 provider instrumentation and streaming event history remain deferred.
+
+Human approval steps now let a handler prepare output, release its worker, and
+wait for a persisted approve/reject decision before dependent steps can run.
 
 ## Overview
 

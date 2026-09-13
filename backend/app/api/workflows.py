@@ -3,7 +3,13 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.models import WorkflowStatus
-from app.schemas.workflows import StepResponse, WorkflowDetailResponse, WorkflowResponse
+from app.schemas.workflows import (
+    ApprovalRequest,
+    StepResponse,
+    WorkflowDetailResponse,
+    WorkflowResponse,
+)
+from app.services.approvals import decide_approval
 from app.services.workflow_api import (
     WorkflowConflict,
     WorkflowNotFound,
@@ -44,6 +50,21 @@ def steps(request: Request, run_id: UUID):
 def cancel(request: Request, run_id: UUID):
     try:
         return cancel_workflow(request.app.state.engine, run_id)
+    except WorkflowNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except WorkflowConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/{run_id}/steps/{step_id}/approval", response_model=WorkflowDetailResponse
+)
+def approval(request: Request, run_id: UUID, step_id: UUID, body: ApprovalRequest):
+    try:
+        decide_approval(
+            request.app.state.engine, run_id, step_id, body.decision, body.note
+        )
+        return workflow_detail(request.app.state.engine, run_id)
     except WorkflowNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except WorkflowConflict as exc:

@@ -134,6 +134,7 @@ def execute_step(
         workflow_run_id = run.id
         queue_name = run.queue_name
         attempt = claimed.attempt_count
+        requires_approval = step.requires_approval
 
     # Commit the claim and release the connection before invoking user code.
     logger.info(json.dumps({"event": "step_started", **log_fields}))
@@ -180,13 +181,20 @@ def execute_step(
                 update(StepRun)
                 .where(*lease_conditions(step_run_id, owner, attempt))
                 .values(
-                    status=StepStatus.COMPLETED,
+                    status=StepStatus.WAITING_APPROVAL
+                    if requires_approval
+                    else StepStatus.COMPLETED,
+                    approval_requested_at=func.clock_timestamp()
+                    if requires_approval
+                    else None,
                     output=output,
                     error=None,
                     next_retry_at=None,
                     lease_owner=None,
                     lease_expires_at=None,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=None
+                    if requires_approval
+                    else datetime.now(timezone.utc),
                 )
             )
             if completed.rowcount != 1:
@@ -195,11 +203,20 @@ def execute_step(
             finish_attempt(session, step_run_id, attempt, owner, "COMPLETED")
             ready_ids = (
                 unlock_dependents(session, step_run_id)
-                if run.status == WorkflowStatus.RUNNING
+                if run.status == WorkflowStatus.RUNNING and not requires_approval
                 else []
             )
             refresh_workflow_status(session, run)
-        logger.info(json.dumps({"event": "step_completed", **log_fields}))
+        logger.info(
+            json.dumps(
+                {
+                    "event": "approval_requested"
+                    if requires_approval
+                    else "step_completed",
+                    **log_fields,
+                }
+            )
+        )
     if ready_ids:
         owned_redis = redis is None
         try:

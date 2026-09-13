@@ -9,9 +9,9 @@ import { Icon } from "@/components/icons";
 
 function Status({ value }: { value: string }) {
   return (
-    <span className={`status ${value.toLowerCase()}`}>
+    <span className={`status ${value.toLowerCase().replaceAll("_", " ")}`}>
       <span aria-hidden="true" className="dot" />
-      {value.toLowerCase()}
+      {value.toLowerCase().replaceAll("_", " ")}
     </span>
   );
 }
@@ -67,7 +67,54 @@ function ModelCalls({ calls }: { calls: LLMCall[] }) {
     </section>
   );
 }
-function StepInspection({ step, run }: { step: Step; run: Detail }) {
+function ApprovalReview({ step, run, reload }: { step: Step; run: Detail; reload: () => void }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function decide(decision: "approved" | "rejected") {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/workflows/${run.id}/steps/${step.id}/approval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, note }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Unable to save decision.");
+      reload();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to save decision.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (step.approval_decision) return (
+    <section className="approval-review" aria-label="Review decision">
+      <h3>{step.approval_decision === "approved" ? "Approved" : "Rejected"}</h3>
+      <p className="muted">{date(step.approval_decided_at ?? null)}</p>
+      {step.approval_note && <p className="review-note">{step.approval_note}</p>}
+    </section>
+  );
+  if (step.status !== "WAITING_APPROVAL") return null;
+  return (
+    <section className="approval-review" aria-label="Human review">
+      <h3>Review required</h3>
+      <p>Review the output below. Approving allows dependent steps to run; rejecting stops this workflow.</p>
+      {run.status === "RUNNING" ? <>
+        <label htmlFor={`review-note-${step.id}`}>Review note (optional)</label>
+        <textarea id={`review-note-${step.id}`} value={note} maxLength={2000} disabled={busy} onChange={(event) => setNote(event.target.value)} />
+        <div className="review-actions">
+          <button className="refresh" disabled={busy} onClick={() => decide("approved")}>Approve output</button>
+          <button className="review-reject" disabled={busy} onClick={() => decide("rejected")}>Reject output</button>
+        </div>
+      </> : <p>This workflow has ended and no longer accepts decisions.</p>}
+      {error && <p role="alert">{error}</p>}
+    </section>
+  );
+}
+function StepInspection({ step, run, reload }: { step: Step; run: Detail; reload: () => void }) {
   return (
     <section className="inspection" aria-label="Step details">
       <div className="section-heading">
@@ -164,10 +211,11 @@ function StepInspection({ step, run }: { step: Step; run: Detail }) {
           <pre>{step.error}</pre>
         </div>
       )}
+      <ApprovalReview key={step.id} step={step} run={run} reload={reload} />
       <h3>
         <Icon name="code" /> Output
       </h3>
-      {step.status === "COMPLETED" ? (
+      {(step.status === "COMPLETED" || step.approval_requested_at) ? (
         <Json value={step.output} />
       ) : (
         <p className="muted">No completed output yet.</p>
@@ -444,6 +492,9 @@ export function Dashboard({ runId }: { runId?: string }) {
       {runId && detail && (
         <>
           <p className="muted">Tracked model usage across all attempts. Cost estimates cover text tokens; unknown usage and other provider charges are excluded.</p>
+          {detail.steps.some((step) => step.status === "WAITING_APPROVAL") && detail.status === "RUNNING" && (
+            <p className="approval-banner" role="status">Awaiting review · Select a step marked waiting approval to inspect its output.</p>
+          )}
           <section className="run-summary">
             <Status value={detail.status} />
             <div>
@@ -526,7 +577,7 @@ export function Dashboard({ runId }: { runId?: string }) {
                 <Json value={detail.input} />
               </details>
             </section>
-            {step && <StepInspection step={step} run={detail} />}
+            {step && <StepInspection step={step} run={detail} reload={reload} />}
           </div>
         </>
       )}
