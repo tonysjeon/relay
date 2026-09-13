@@ -27,9 +27,7 @@ export default function Layout({
           </Link>
           <WorkspaceNavigation />
           <div className="sidebar-foot">
-            <span className="workspace-icon">
-              <Icon name="monitor" />
-            </span>
+            <span className="local-indicator" aria-hidden="true" />
             <div>
               <strong>Local workspace</strong>
               <span>Development environment</span>
@@ -45,7 +43,6 @@ export default function Layout({
               <WorkspaceSection />
             </div>
             <div className="topbar-right">
-              <span className="environment">Local</span>
               <div id="topbar-actions" />
             </div>
           </header>
