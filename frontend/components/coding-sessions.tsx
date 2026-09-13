@@ -78,7 +78,7 @@ export function CodingSessions({sessionId}: {sessionId?: string}) {
         </tr>)}</tbody>
       </table></div>
       {loaded && !sessions.length && <div className="approval-review"><h2>No coding sessions yet</h2><p>Install the Relay Codex hooks in your repository, then review and trust them in Codex. Future session and tool events will appear here.</p><p>Setup instructions are in the repository README under “Codex activity”.</p></div>}
-      <div className="review-actions"><button className="refresh" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button><button className="refresh" disabled={!more} onClick={() => setPage(page + 1)}>Next</button></div>
+      {(page > 0 || more) && <div className="review-actions"><button className="refresh" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button><button className="refresh" disabled={!more} onClick={() => setPage(page + 1)}>Next</button></div>}
     </>}
   </>;
 }
