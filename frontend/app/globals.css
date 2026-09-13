@@ -90,8 +90,6 @@ td { padding: 11px 16px; font-size: 12px; border-bottom: 1px solid #edeef0; }
 tr:last-child td { border-bottom: 0; }
 tbody tr:hover, tbody tr:focus-within { background: #fafbfc; }
 .workflow-cell { display: flex; align-items: center; }
-.workflow-table th, .workflow-table td { text-align: center; }
-.workflow-table .workflow-cell { justify-content: center; }
 .workflow-table tbody tr { position: relative; }
 .workflow-table .run-link::after { content: ""; position: absolute; inset: 0; }
 .workflow-table tbody tr:focus-within { outline: 2px solid #567da3; outline-offset: -2px; }
