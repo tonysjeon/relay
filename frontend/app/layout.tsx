@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Icon, RelayMark } from "@/components/icons";
+import { WorkspaceNavigation, WorkspaceSection } from "@/components/workspace-navigation";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,18 +25,7 @@ export default function Layout({
               relay<span className="brand-caption">Workflow runtime</span>
             </span>
           </Link>
-          <nav aria-label="Main navigation">
-            <p className="nav-label">Workspace</p>
-            <Link href="/" className="nav-item">
-              <Icon name="workflow" />
-              Workflow runs
-              <Icon name="chevron-right" className="nav-chevron" />
-            </Link>
-            <Link href="/coding-sessions" className="nav-item">
-              <Icon name="code" /> Coding sessions
-              <Icon name="chevron-right" className="nav-chevron" />
-            </Link>
-          </nav>
+          <WorkspaceNavigation />
           <div className="sidebar-foot">
             <span className="workspace-icon">
               <Icon name="monitor" />
@@ -52,7 +42,7 @@ export default function Layout({
               <Icon name="monitor" />
               <span>Local workspace</span>
               <Icon name="chevron-right" />
-              <strong>Workflows</strong>
+              <WorkspaceSection />
             </div>
             <span className="environment">Local</span>
           </header>

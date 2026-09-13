@@ -107,22 +107,34 @@ svg {
   text-transform: uppercase;
   color: #7f899a;
 }
+.nav-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .nav-item {
   padding: 10px 11px;
   border-radius: 7px;
   font-weight: 550;
-  color: #335a8e;
+  color: #667388;
   display: flex;
   align-items: center;
   gap: 10px;
+  font-size: 12px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.nav-item:hover {
+  background: #eef2f7;
+  color: #335a8e;
+}
+.nav-item[aria-current="page"] {
+  color: #335a8e;
   background: #eaf0f8;
   box-shadow: inset 0 0 0 1px #e1e9f4;
-  font-size: 12px;
 }
-.nav-chevron {
-  width: 12px;
-  margin-left: auto;
-  color: #7a99c0;
+.nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .sidebar-foot {
   margin-top: auto;
@@ -895,8 +907,7 @@ footer > span:first-child {
   }
   .brand-caption,
   .nav-label,
-  .sidebar-foot,
-  .nav-chevron {
+  .sidebar-foot {
     display: none;
   }
   .nav-item {
