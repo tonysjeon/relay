@@ -69,7 +69,7 @@ function ModelCalls({ calls }: { calls: LLMCall[] }) {
             <div><dt>Duration</dt><dd>{duration(call)}</dd></div>
             <div><dt>Started</dt><dd>{date(call.started_at)}</dd></div>
             <div><dt>Finished</dt><dd>{date(call.completed_at)}</dd></div>
-            <div><dt>Est. cost · USD</dt><dd>{cost(call.estimated_cost_usd)}</dd></div>
+            <div><dt>Est. cost</dt><dd>{cost(call.estimated_cost_usd)}</dd></div>
           </dl>
           {call.error && <p className="attempt-error">{call.error}</p>}
           <h3>Response</h3>
@@ -366,7 +366,7 @@ export function Dashboard({ runId }: { runId?: string }) {
                   <th className="created-column">Created</th>
                   <th className="numeric">Duration</th>
                   <th className="numeric">Tokens</th>
-                  <th className="numeric">Est. cost · USD</th>
+                  <th className="numeric">Est. cost</th>
                   <th>
                     <span className="sr-only">Details</span>
                   </th>
@@ -481,7 +481,7 @@ export function Dashboard({ runId }: { runId?: string }) {
               <strong className="mono">{tokenTotal(detail.usage)}</strong>
             </div>
             <div>
-              <span title="Text-token estimate across all attempts. Unknown usage and other provider charges are excluded.">Est. cost · USD</span>
+              <span title="Text-token estimate across all attempts. Unknown usage and other provider charges are excluded.">Est. cost</span>
               <strong className="mono">{usageCost(detail.usage)}</strong>
             </div>
             <div>
