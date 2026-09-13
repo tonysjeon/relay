@@ -7,6 +7,7 @@
   --soft: #f7f8f9;
   --sidebar-width: 204px;
   --content-width: 1120px;
+  --page-padding: 28px;
 }
 * { box-sizing: border-box; }
 html { scrollbar-gutter: stable; }
@@ -53,12 +54,13 @@ svg { flex-shrink: 0; vertical-align: middle; }
 .sidebar-foot strong { font-size: 11px; font-weight: 500; display: block; }
 .sidebar-foot div > span { font-size: 10px; color: var(--muted); }
 .workspace { margin-left: var(--sidebar-width); min-width: 0; }
-.topbar { height: 49px; border-bottom: 1px solid var(--line); padding: 0 max(28px, calc((100% - var(--content-width)) / 2 + 28px)); display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
+.topbar { height: 49px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.topbar-inner { height: 100%; max-width: var(--content-width); margin: auto; padding-inline: var(--page-padding); display: flex; justify-content: space-between; align-items: center; }
 .breadcrumb { display: flex; align-items: center; gap: 10px; color: var(--muted); }
 .breadcrumb > svg:first-child { display: none; }
 .breadcrumb > svg { width: 10px; }
 .breadcrumb strong { color: #545a61; font-weight: 500; }
-main { max-width: var(--content-width); margin: auto; padding: 26px 28px 48px; min-height: calc(100vh - 49px); }
+main { max-width: var(--content-width); margin: auto; padding: 26px var(--page-padding) 48px; min-height: calc(100vh - 49px); }
 .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 26px; }
 h1 { font-size: 23px; letter-spacing: -.55px; font-weight: 600; line-height: 1.3; margin: 0; overflow-wrap: anywhere; }
 .subtitle { font-size: 12px; color: var(--muted); margin: 5px 0 0; }
@@ -234,9 +236,8 @@ footer { display: none; }
 .sr-only, .skip:not(:focus) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); }
 .skip:focus { position: fixed; z-index: 10; background: white; padding: 12px; }
 @media (max-width: 1150px) {
-  :root { --sidebar-width: 180px; }
-  main { padding: 24px; }
-  .topbar { padding-inline: 24px; }
+  :root { --sidebar-width: 180px; --page-padding: 24px; }
+  main { padding-block: 24px; }
   .detail-grid { grid-template-columns: 200px minmax(0, 1fr); gap: 18px; }
   .run-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   th, td { padding-inline: 12px; }
@@ -263,14 +264,14 @@ footer { display: none; }
   .heading-actions { flex-direction: column; align-items: end; gap: 5px; }
 }
 @media (max-width: 520px) {
+  :root { --page-padding: 16px; }
   .page-heading:has(.run-controls) { flex-direction: column; }
   .run-controls { width: 100%; justify-content: space-between; }
   .sidebar { flex-wrap: wrap; gap: 14px; padding: 14px 16px; }
   .sidebar nav { margin-left: auto; }
   .nav-item { padding: 7px; gap: 5px; }
   .nav-item svg { display: none; }
-  main { padding: 20px 16px 36px; }
-  .topbar { padding-inline: 16px; }
+  main { padding-block: 20px 36px; }
   .page-heading { align-items: start; gap: 12px; margin-bottom: 20px; }
   h1 { font-size: 21px; }
   .update-line { display: none; }

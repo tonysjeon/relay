@@ -36,14 +36,16 @@ export default function Layout({
         </aside>
         <div className="workspace">
           <header className="topbar">
-            <div className="breadcrumb">
-              <Icon name="monitor" />
-              <span>Local workspace</span>
-              <Icon name="chevron-right" />
-              <WorkspaceSection />
-            </div>
-            <div className="topbar-right">
-              <div id="topbar-actions" />
+            <div className="topbar-inner">
+              <div className="breadcrumb">
+                <Icon name="monitor" />
+                <span>Local workspace</span>
+                <Icon name="chevron-right" />
+                <WorkspaceSection />
+              </div>
+              <div className="topbar-right">
+                <div id="topbar-actions" />
+              </div>
             </div>
           </header>
           <main id="main">{children}</main>
