@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from app.models import WorkflowStatus
 from app.schemas.workflows import (
@@ -14,6 +14,7 @@ from app.services.workflow_api import (
     WorkflowConflict,
     WorkflowNotFound,
     cancel_workflow,
+    count_workflows,
     list_workflows,
     workflow_detail,
 )
@@ -24,10 +25,14 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 @router.get("", response_model=list[WorkflowResponse])
 def workflows(
     request: Request,
+    response: Response,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     status: WorkflowStatus | None = None,
 ):
+    response.headers["X-Total-Count"] = str(
+        count_workflows(request.app.state.engine, status=status)
+    )
     return list_workflows(
         request.app.state.engine, limit=limit, offset=offset, status=status
     )

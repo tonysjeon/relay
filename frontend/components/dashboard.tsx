@@ -209,6 +209,7 @@ function StepInspection({ step, run, reload }: { step: Step; run: Detail; reload
 }
 export function Dashboard({ runId }: { runId?: string }) {
   const [runs, setRuns] = useState<Run[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -223,6 +224,7 @@ export function Dashboard({ runId }: { runId?: string }) {
     setLoading(true);
     setError("");
     setRuns([]);
+    setTotal(null);
     setDetail(null);
     setMore(false);
     setUpdated(null);
@@ -243,6 +245,8 @@ export function Dashboard({ runId }: { runId?: string }) {
         if (signal.aborted) return;
         if (runId) setDetail({ ...data, steps: orderSteps(data.steps) });
         else {
+          const count = response.headers.get("X-Total-Count");
+          setTotal(count === null ? null : Number(count));
           setRuns(data.slice(0, 20));
           setMore(data.length > 20);
         }
@@ -330,8 +334,7 @@ export function Dashboard({ runId }: { runId?: string }) {
               <h2>
                 Runs{" "}
                 <span className="count">
-                  {runs.length}
-                  {more ? "+" : ""}
+                  {loading ? "…" : `${runs.length ? `${page * 20 + 1}–${page * 20 + runs.length}` : "0"} of ${total ?? "—"}`}
                 </span>
               </h2>
               <p className="muted">Newest first</p>

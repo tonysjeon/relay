@@ -25,7 +25,12 @@ export async function proxy(request: NextRequest, path = "") {
         { status: response.status },
       );
     return NextResponse.json(await response.json(), {
-      headers: { "Cache-Control": "no-store" },
+      headers: {
+        "Cache-Control": "no-store",
+        ...(response.headers.has("X-Total-Count")
+          ? { "X-Total-Count": response.headers.get("X-Total-Count")! }
+          : {}),
+      },
     });
   } catch {
     return NextResponse.json(
