@@ -61,6 +61,14 @@ def run_response(session, run):
     )
 
 
+def count_workflows(engine: Engine, *, status: WorkflowStatus | None = None) -> int:
+    query = select(func.count()).select_from(WorkflowRun)
+    if status is not None:
+        query = query.where(WorkflowRun.status == status)
+    with Session(engine) as session:
+        return session.scalar(query) or 0
+
+
 def list_workflows(
     engine: Engine,
     *,

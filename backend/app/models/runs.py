@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -32,6 +33,7 @@ class WorkflowStatus(StrEnum):
 
 
 class StepStatus(StrEnum):
+    WAITING_APPROVAL = "WAITING_APPROVAL"
     PENDING = "PENDING"
     READY = "READY"
     RUNNING = "RUNNING"
@@ -80,6 +82,15 @@ class StepRun(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workflow_run_id: Mapped[UUID] = mapped_column(
         ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    requires_approval: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    approval_decision: Mapped[str | None] = mapped_column(String)
+    approval_note: Mapped[str | None] = mapped_column(Text)
+    approval_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    approval_decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
     )
     step_name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[StepStatus] = mapped_column(

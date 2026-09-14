@@ -51,14 +51,24 @@ def create(database, runtime, handler=None):
 
 def test_list_pagination_filter_and_step_details(database, runtime):
     client, redis, queue = runtime
-    assert client.get("/workflows").json() == []
+    empty = client.get("/workflows")
+    assert empty.json() == []
+    assert empty.headers["X-Total-Count"] == "0"
     first, registry = create(database, runtime)
     second, _ = create(database, runtime)
     assert run_once(database, redis, registry, queue_name=queue)
     rows = client.get("/workflows").json()
     assert [r["id"] for r in rows] == [str(second), str(first)]
-    assert client.get("/workflows?limit=1&offset=1").json() == rows[1:]
-    assert client.get("/workflows?status=RUNNING").json() == rows[1:]
+    page = client.get("/workflows?limit=1&offset=1")
+    assert page.json() == rows[1:]
+    assert page.headers["X-Total-Count"] == "2"
+    filtered = client.get("/workflows?status=RUNNING")
+    assert filtered.json() == rows[1:]
+    assert filtered.headers["X-Total-Count"] == "1"
+    past_end = client.get("/workflows?offset=2")
+    assert past_end.json() == []
+    assert past_end.headers["X-Total-Count"] == "2"
+    assert client.get("/workflows?status=FAILED").headers["X-Total-Count"] == "0"
     detail = client.get(f"/workflows/{first}").json()
     assert detail["input"] == {"company": "Stripe"}
     assert detail["started_at"] and detail["completed_at"] is None

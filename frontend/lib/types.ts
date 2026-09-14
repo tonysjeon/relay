@@ -1,7 +1,7 @@
 export type RunStatus =
   "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 export type StepStatus =
-  "PENDING" | "READY" | "RUNNING" | "RETRYING" | "COMPLETED" | "FAILED";
+  "PENDING" | "READY" | "RUNNING" | "RETRYING" | "WAITING_APPROVAL" | "COMPLETED" | "FAILED";
 export type Usage = {
   calls: number;
   input_tokens: number;
@@ -46,6 +46,11 @@ export type Attempt = {
   llm_calls: LLMCall[];
 };
 export type Step = {
+  requires_approval?: boolean;
+  approval_decision?: string | null;
+  approval_note?: string | null;
+  approval_requested_at?: string | null;
+  approval_decided_at?: string | null;
   id: string;
   step_name: string;
   status: StepStatus;

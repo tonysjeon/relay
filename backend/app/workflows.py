@@ -18,9 +18,12 @@ class StepDefinition:
     handler: Callable[[dict[str, Any]], Any]
     depends_on: tuple[str, ...] = ()
     max_attempts: int = 1
+    requires_approval: bool = False
 
     def __post_init__(self) -> None:
         _validate_name(self.name)
+        if type(self.requires_approval) is not bool:
+            raise TypeError("requires_approval must be a boolean")
         if not callable(self.handler):
             raise TypeError(f"Handler for step {self.name!r} must be callable")
         if type(self.max_attempts) is not int or self.max_attempts < 1:
@@ -52,6 +55,7 @@ class Workflow:
         *,
         depends_on: Sequence[str] | None = None,
         retries: int = 0,
+        requires_approval: bool = False,
     ) -> StepDefinition:
         _validate_name(name)
         if name in self._steps:
@@ -65,6 +69,7 @@ class Workflow:
             handler=handler,
             depends_on=tuple(depends_on) if depends_on is not None else (),
             max_attempts=retries + 1,
+            requires_approval=requires_approval,
         )
         self._steps[name] = step
         return step

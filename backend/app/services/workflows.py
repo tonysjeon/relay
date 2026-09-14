@@ -53,6 +53,7 @@ def run(
             for step in steps:
                 definition = workflow.steps[step.step_name]
                 step.max_attempts = definition.max_attempts
+                step.requires_approval = definition.requires_approval
                 step.status = (
                     StepStatus.PENDING if definition.depends_on else StepStatus.READY
                 )

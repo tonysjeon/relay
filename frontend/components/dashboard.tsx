@@ -6,12 +6,13 @@ import { startPolling } from "@/lib/polling";
 import { cost, tokenTotal, usageCost } from "@/lib/usage";
 import { orderSteps } from "@/lib/steps";
 import { Icon } from "@/components/icons";
+import { TopbarActions } from "@/components/topbar-actions";
 
 function Status({ value }: { value: string }) {
   return (
     <span className={`status ${value.toLowerCase()}`}>
       <span aria-hidden="true" className="dot" />
-      {value.toLowerCase()}
+      {value === "WAITING_APPROVAL" ? "Needs review" : value.toLowerCase().replaceAll("_", " ")}
     </span>
   );
 }
@@ -37,155 +38,179 @@ function duration(run: {
 function Json({ value }: { value: unknown }) {
   return <pre>{JSON.stringify(value, null, 2) ?? "null"}</pre>;
 }
+function Result({ value }: { value: unknown }) {
+  return <div className="result">
+    {typeof value === "string" ? <p className="result-text">{value}</p>
+      : value && typeof value === "object" && !Array.isArray(value) ? <dl className="result-fields">
+        {Object.entries(value).map(([key, item]) => <div key={key}>
+          <dt>{key.replaceAll("_", " ")}</dt>
+          <dd>{typeof item === "string" ? <span className="result-text">{item}</span>
+            : item === null ? <span className="muted">null</span>
+            : typeof item === "object" ? <Json value={item} /> : String(item)}</dd>
+        </div>)}
+      </dl> : <Json value={value} />}
+    <details className="raw-data"><summary>View JSON</summary><Json value={value} /></details>
+  </div>;
+}
 function ModelCalls({ calls }: { calls: LLMCall[] }) {
   return (
     <section className="model-calls" aria-label="LLM calls">
-      <h3>LLM calls <span className="muted">{calls.length}</span></h3>
-      {calls.length === 0 && <p className="muted">No model calls recorded for this attempt.</p>}
-      {calls.map((call, index) => (
+      {calls.length === 0 && <p className="empty-inline">No model calls recorded.</p>}
+      {calls.map((call) => (
         <details className="model-call" key={call.id}>
           <summary>
-            <span>{index + 1}. {call.provider} · {call.model}</span>
+            <span className="call-model"><strong>{call.model}</strong><span className="muted">{call.provider}</span></span>
+            <span className="call-metrics mono">{duration(call)} · {cost(call.estimated_cost_usd)}</span>
             <Status value={call.status} />
           </summary>
           <dl className="facts">
-            <div><dt>Duration</dt><dd>{duration(call)}</dd></div>
             <div><dt>Input tokens</dt><dd>{call.input_tokens ?? "Not reported"}</dd></div>
-            <div><dt>Cached input tokens</dt><dd>{call.cached_input_tokens ?? "Not reported"}</dd></div>
-            <div><dt>Est. cost (USD)</dt><dd>{cost(call.estimated_cost_usd)}</dd></div>
             <div><dt>Output tokens</dt><dd>{call.output_tokens ?? "Not reported"}</dd></div>
+            <div><dt>Cached input</dt><dd>{call.cached_input_tokens ?? "Not reported"}</dd></div>
+            <div><dt>Duration</dt><dd>{duration(call)}</dd></div>
             <div><dt>Started</dt><dd>{date(call.started_at)}</dd></div>
             <div><dt>Finished</dt><dd>{date(call.completed_at)}</dd></div>
+            <div><dt>Est. cost</dt><dd>{cost(call.estimated_cost_usd)}</dd></div>
           </dl>
           {call.error && <p className="attempt-error">{call.error}</p>}
-          <h3>Prompt / request</h3>
-          <Json value={call.input} />
           <h3>Response</h3>
-          {call.status === "COMPLETED" ? <Json value={call.output} /> : <p className="muted">No completed response recorded.</p>}
+          {call.status === "COMPLETED" ? <Result value={call.output} /> : <p className="empty-inline">No completed response recorded.</p>}
+          <details className="raw-data"><summary>Request</summary><Json value={call.input} /></details>
         </details>
       ))}
     </section>
   );
 }
-function StepInspection({ step, run }: { step: Step; run: Detail }) {
+function ApprovalReview({ step, run, reload }: { step: Step; run: Detail; reload: () => void }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function decide(decision: "approved" | "rejected") {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/workflows/${run.id}/steps/${step.id}/approval`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, note }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Unable to save decision.");
+      reload();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to save decision.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (step.approval_decision) return (
+    <section className="approval-review" aria-label="Review decision">
+      <h3>{step.approval_decision === "approved" ? "Approved" : "Rejected"}</h3>
+      <p className="muted">{date(step.approval_decided_at ?? null)}</p>
+      {step.approval_note && <p className="review-note">{step.approval_note}</p>}
+    </section>
+  );
+  if (step.status !== "WAITING_APPROVAL") return null;
+  return (
+    <section className="approval-review" aria-label="Human review">
+      <h3>Review required</h3>
+      <p>Approve to continue dependent steps, or reject to stop this workflow.</p>
+      {run.status === "RUNNING" ? <>
+        <label htmlFor={`review-note-${step.id}`}>Review note (optional)</label>
+        <textarea id={`review-note-${step.id}`} value={note} maxLength={2000} disabled={busy} onChange={(event) => setNote(event.target.value)} />
+        <div className="review-actions">
+          <button className="primary" disabled={busy} onClick={() => decide("approved")}>Approve output</button>
+          <button className="review-reject" disabled={busy} onClick={() => decide("rejected")}>Reject output</button>
+        </div>
+      </> : <p>This workflow has ended and no longer accepts decisions.</p>}
+      {error && <p role="alert">{error}</p>}
+    </section>
+  );
+}
+function StepInspection({ step, run, reload }: { step: Step; run: Detail; reload: () => void }) {
+  const [section, setSection] = useState("Output");
+  const attempts = [...(step.attempts ?? [])].reverse();
+  const calls = attempts.flatMap(attempt => attempt.llm_calls ?? []);
+  const sections = [
+    {name: "Output"}, {name: "Model calls", count: calls.length},
+    {name: "Attempts", count: attempts.length}, {name: "Input"},
+  ];
   return (
     <section className="inspection" aria-label="Step details">
       <div className="section-heading">
-        <div>
-          <p className="eyebrow">Step inspection</p>
-          <h2>{step.step_name}</h2>
-        </div>
+        <h2>{step.step_name}</h2>
         <Status value={step.status} />
       </div>
-      <dl className="facts">
-        <div>
-          <dt>Attempts</dt>
-          <dd>
-            {step.attempt_count} / {step.max_attempts}
-          </dd>
-        </div>
-        <div>
-          <dt>Duration</dt>
-          <dd>{duration(step)}</dd>
-        </div>
-        <div className="full">
-          <dt>Worker</dt>
-          <dd className="mono">{step.lease_owner || "No active lease"}</dd>
-        </div>
-        <div>
-          <dt>Started</dt>
-          <dd>{date(step.started_at)}</dd>
-        </div>
-        <div>
-          <dt>Completed</dt>
-          <dd>{date(step.completed_at)}</dd>
-        </div>
-        {step.next_retry_at && (
-          <div className="full">
-            <dt>Retry scheduled</dt>
-            <dd>{date(step.next_retry_at)}</dd>
-          </div>
-        )}
-        {step.lease_expires_at && (
-          <div className="full">
-            <dt>Lease expires</dt>
-            <dd>{date(step.lease_expires_at)}</dd>
-          </div>
-        )}
-        <div className="full">
-          <dt>Depends on</dt>
-          <dd>
-            {step.depends_on
-              .map((id) => run.steps.find((s) => s.id === id)?.step_name || id)
-              .join(", ") || "No dependencies"}
-          </dd>
-        </div>
+      <dl className="facts inspection-summary">
+        <div><dt>Elapsed</dt><dd>{duration(step)}</dd></div>
+        <div><dt>Attempts</dt><dd>{step.attempt_count} / {step.max_attempts}</dd></div>
+        <div><dt>Dependencies</dt><dd>{step.depends_on.map(id => run.steps.find(s => s.id === id)?.step_name || id).join(", ") || "None"}</dd></div>
       </dl>
-      <h3>Attempt history</h3>
-      {step.attempt_count > (step.attempts?.length ?? 0) && (
-        <p className="muted">History is unavailable for earlier attempts.</p>
-      )}
-      {!step.attempt_count && <p className="muted">This step has not started yet.</p>}
-      <ol className="attempt-history" aria-label="Attempt history">
-        {[...(step.attempts ?? [])].reverse().map((attempt) => (
-          <li key={attempt.id}>
-            <div className="attempt-heading">
-              <strong>Attempt {attempt.attempt_number}</strong>
-              <Status value={attempt.status} />
-            </div>
-            <dl className="facts">
-              <div className="full">
-                <dt>Worker</dt>
-                <dd className="mono">{attempt.worker_id}</dd>
-              </div>
-              <div>
-                <dt>Started</dt>
-                <dd>{date(attempt.started_at)}</dd>
-              </div>
-              <div>
-                <dt>Finished</dt>
-                <dd>{date(attempt.completed_at)}</dd>
-              </div>
-              <div>
-                <dt>Duration</dt>
-                <dd>{duration(attempt)}</dd>
-              </div>
-            </dl>
-            <ModelCalls calls={attempt.llm_calls ?? []} />
-            {attempt.error && (
-              <pre className="attempt-error">{attempt.error}</pre>
-            )}
-          </li>
-        ))}
-      </ol>
-      {step.error && (
-        <div className="error-detail">
-          <h3>Last error</h3>
-          <pre>{step.error}</pre>
+      <nav className="inspector-tabs" aria-label="Step sections">
+        {sections.map(item => <button key={item.name} aria-pressed={section === item.name} onClick={() => setSection(item.name)}>
+          {item.name}{item.count !== undefined && <span className="count">{item.count}</span>}
+        </button>)}
+      </nav>
+      <div className="inspector-body">
+        <div hidden={section !== "Output"}>
+          {step.error && <div className="error-banner"><strong>Last error</strong><p>{step.error}</p></div>}
+          {(step.status === "COMPLETED" || step.approval_requested_at)
+            ? <Result value={step.output} />
+            : <p className="empty-inline">{step.status === "RUNNING" ? "Output will appear when execution finishes." : "No output recorded yet."}</p>}
+          <ApprovalReview step={step} run={run} reload={reload} />
         </div>
-      )}
-      <h3>
-        <Icon name="code" /> Output
-      </h3>
-      {step.status === "COMPLETED" ? (
-        <Json value={step.output} />
-      ) : (
-        <p className="muted">No completed output yet.</p>
-      )}
-      <h3>
-        <Icon name="code" /> Execution input
-      </h3>
-      {step.input === null ? (
-        <p className="muted">Available when this step is claimed.</p>
-      ) : (
-        <Json value={step.input} />
-      )}
-      <p className="step-id mono">{step.id}</p>
+        {section === "Model calls" && <>
+          {calls.length === 0 && <p className="empty-inline">No model calls recorded.</p>}
+          {attempts.filter(attempt => attempt.llm_calls?.length).map(attempt => <div key={attempt.id}>
+            {attempts.length > 1 && <h3>Attempt {attempt.attempt_number}</h3>}
+            <ModelCalls calls={attempt.llm_calls} />
+          </div>)}
+        </>}
+        {section === "Attempts" && <>
+          {step.attempt_count > attempts.length && <p className="empty-inline">History is unavailable for earlier attempts.</p>}
+          {!step.attempt_count && <p className="empty-inline">This step has not started.</p>}
+          <ol className="attempt-history" aria-label="Attempt history">
+            {attempts.map(attempt => <li key={attempt.id}>
+              <details>
+                <summary className="attempt-heading">
+                  <strong>Attempt {attempt.attempt_number}</strong>
+                  <span className="mono muted">{duration(attempt)}</span>
+                  <Status value={attempt.status} />
+                </summary>
+                <dl className="facts">
+                  <div><dt>Started</dt><dd>{date(attempt.started_at)}</dd></div>
+                  <div><dt>Finished</dt><dd>{date(attempt.completed_at)}</dd></div>
+                  <div className="full"><dt>Worker</dt><dd className="mono">{attempt.worker_id}</dd></div>
+                </dl>
+                {attempt.error && <pre className="attempt-error">{attempt.error}</pre>}
+                <ModelCalls calls={attempt.llm_calls ?? []} />
+              </details>
+            </li>)}
+          </ol>
+          <dl className="facts">
+            {step.next_retry_at && <div><dt>Next retry</dt><dd>{date(step.next_retry_at)}</dd></div>}
+            {step.lease_expires_at && <div><dt>Lease expires</dt><dd>{date(step.lease_expires_at)}</dd></div>}
+            {step.lease_owner && <div className="full"><dt>Active worker</dt><dd className="mono">{step.lease_owner}</dd></div>}
+          </dl>
+        </>}
+        {section === "Input" && (step.input === null
+          ? <p className="empty-inline">Input is available when the step starts.</p>
+          : <Result value={step.input} />)}
+      </div>
+      <details className="step-metadata"><summary>Step metadata</summary>
+        <dl className="facts">
+          <div className="full"><dt>Step ID</dt><dd className="mono">{step.id}</dd></div>
+          <div><dt>Started</dt><dd>{date(step.started_at)}</dd></div>
+          <div><dt>Completed</dt><dd>{date(step.completed_at)}</dd></div>
+        </dl>
+      </details>
     </section>
   );
 }
 export function Dashboard({ runId }: { runId?: string }) {
   const [runs, setRuns] = useState<Run[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -200,6 +225,7 @@ export function Dashboard({ runId }: { runId?: string }) {
     setLoading(true);
     setError("");
     setRuns([]);
+    setTotal(null);
     setDetail(null);
     setMore(false);
     setUpdated(null);
@@ -220,6 +246,8 @@ export function Dashboard({ runId }: { runId?: string }) {
         if (signal.aborted) return;
         if (runId) setDetail({ ...data, steps: orderSteps(data.steps) });
         else {
+          const count = response.headers.get("X-Total-Count");
+          setTotal(count === null ? null : Number(count));
           setRuns(data.slice(0, 20));
           setMore(data.length > 20);
         }
@@ -246,7 +274,7 @@ export function Dashboard({ runId }: { runId?: string }) {
       refreshRef.current = () => {};
     };
   }, [runId, filter, page]);
-  const step = detail?.steps.find((s) => s.id === selected) || detail?.steps[0];
+  const step = detail?.steps.find((s) => s.id === selected) || detail?.steps.find((s) => s.status === "WAITING_APPROVAL") || detail?.steps[0];
   return (
     <>
       <div className={`page-heading ${runId ? "detail-heading" : ""}`}>
@@ -267,51 +295,19 @@ export function Dashboard({ runId }: { runId?: string }) {
           </h1>
           <p className="subtitle">
             {runId
-              ? "Inspect dependencies, execution state, and results."
-              : "Monitor execution and explore the details of each run."}
+              ? `Run ${detail?.id.slice(0, 8) || runId.slice(0, 8)}`
+              : "Execution history"}
           </p>
         </div>
-        <div className="heading-actions">
-          <button className="refresh" onClick={reload} disabled={loading}>
-            <Icon name="refresh" /> {loading ? "Refreshing…" : "Refresh"}
-          </button>
-          <span className="update-line">
-            {error
-              ? updated
-                ? `Reconnecting · Last updated ${updated}`
-                : "Data unavailable"
-              : updated
-                ? `Updated ${updated} · Every 2s`
-                : "Connecting…"}
-          </span>
-        </div>
-      </div>
-      {error && (
-        <div className="error-banner" role="alert">
-          <strong>
-            {updated ? "Unable to refresh data" : "Unable to load data"}
-          </strong>
-          <p>{error}</p>
-          <button onClick={reload}>Try again</button>
-        </div>
-      )}
-      {!error && loading && !updated && (
-        <div className="empty" role="status">
-          Loading workflow data…
-        </div>
-      )}
-      {!runId && (
-        <section className="runs-panel" aria-label="Workflow runs">
-          <div className="toolbar">
+        {!runId && (
+          <div className="run-controls">
             <div>
               <h2>
-                Run history{" "}
+                Runs{" "}
                 <span className="count">
-                  {runs.length}
-                  {more ? "+" : ""}
+                  {loading ? "…" : `${runs.length ? `${page * 20 + 1}–${page * 20 + runs.length}` : "0"} of ${total ?? "—"}`}
                 </span>
               </h2>
-              <p className="muted">Sorted by newest first</p>
             </div>
             <label className="status-filter">
               <Icon name="filter" />
@@ -334,19 +330,50 @@ export function Dashboard({ runId }: { runId?: string }) {
               </select>
             </label>
           </div>
+        )}
+        <TopbarActions>
+          <div className="heading-actions">
+            <button className="refresh" onClick={reload} disabled={loading}>
+              <Icon name="refresh" /> {loading ? "Refreshing…" : "Refresh"}
+            </button>
+            <span className="update-line">
+              {error
+                ? updated
+                  ? `Reconnecting · Last updated ${updated}`
+                  : "Data unavailable"
+                : updated
+                  ? `Live · ${updated}`
+                  : "Connecting…"}
+            </span>
+          </div>
+        </TopbarActions>
+      </div>
+      {error && (
+        <div className="error-banner" role="alert">
+          <strong>
+            {updated ? "Unable to refresh data" : "Unable to load data"}
+          </strong>
+          <p>{error}</p>
+          <button onClick={reload}>Try again</button>
+        </div>
+      )}
+      {!error && loading && !updated && (
+        <div className="empty" role="status">
+          Loading workflow data…
+        </div>
+      )}
+      {!runId && (
+        <section className="runs-panel" aria-label="Workflow runs">
           <div className="table-wrap">
-            <table>
+            <table className="workflow-table">
               <thead>
                 <tr>
                   <th>Workflow</th>
                   <th>Status</th>
                   <th className="created-column">Created</th>
-                  <th>Duration</th>
-                  <th>Tokens</th>
-                  <th>Est. cost</th>
-                  <th>
-                    <span className="sr-only">Details</span>
-                  </th>
+                  <th className="numeric">Duration</th>
+                  <th className="numeric">Tokens</th>
+                  <th className="numeric">Est. cost</th>
                 </tr>
               </thead>
               <tbody>
@@ -354,9 +381,6 @@ export function Dashboard({ runId }: { runId?: string }) {
                   <tr key={run.id}>
                     <td>
                       <div className="workflow-cell">
-                        <span className="workflow-icon">
-                          <Icon name="workflow" />
-                        </span>
                         <div>
                           <Link
                             className="run-link"
@@ -388,18 +412,9 @@ export function Dashboard({ runId }: { runId?: string }) {
                         </span>
                       </time>
                     </td>
-                    <td className="mono">{duration(run)}</td>
-                    <td className="mono">{tokenTotal(run.usage)}</td>
-                    <td className="mono">{usageCost(run.usage)}</td>
-                    <td>
-                      <Link
-                        aria-label={`Inspect ${run.workflow_name} ${run.id}`}
-                        className="arrow"
-                        href={`/workflows/${run.id}`}
-                      >
-                        <Icon name="chevron-right" />
-                      </Link>
-                    </td>
+                    <td className="mono numeric">{duration(run)}</td>
+                    <td className="mono numeric">{tokenTotal(run.usage)}</td>
+                    <td className="mono numeric">{usageCost(run.usage)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -422,7 +437,7 @@ export function Dashboard({ runId }: { runId?: string }) {
               </div>
             )}
           </div>
-          <div className="pagination">
+          {(page > 0 || more) && <div className="pagination">
             <span>Page {page + 1}</span>
             <div>
               <button
@@ -438,14 +453,16 @@ export function Dashboard({ runId }: { runId?: string }) {
                 Next <Icon name="arrow-right" />
               </button>
             </div>
-          </div>
+          </div>}
         </section>
       )}
       {runId && detail && (
         <>
-          <p className="muted">Tracked model usage across all attempts. Cost estimates cover text tokens; unknown usage and other provider charges are excluded.</p>
+          {detail.steps.some((step) => step.status === "WAITING_APPROVAL") && detail.status === "RUNNING" && (
+            <p className="approval-banner" role="status"><span className="dot" /> Review required — select a step marked Needs review.</p>
+          )}
           <section className="run-summary">
-            <Status value={detail.status} />
+            <div><span>Status</span><Status value={detail.status} /></div>
             <div>
               <span>Started</span>
               <strong>{date(detail.started_at)}</strong>
@@ -455,11 +472,11 @@ export function Dashboard({ runId }: { runId?: string }) {
               <strong className="mono">{duration(detail)}</strong>
             </div>
             <div>
-              <span>Tokens (all attempts)</span>
+              <span title="Recorded tokens across every attempt">Tokens</span>
               <strong className="mono">{tokenTotal(detail.usage)}</strong>
             </div>
             <div>
-              <span>Est. cost (USD)</span>
+              <span title="Text-token estimate across all attempts. Unknown usage and other provider charges are excluded.">Est. cost</span>
               <strong className="mono">{usageCost(detail.usage)}</strong>
             </div>
             <div>
@@ -470,7 +487,7 @@ export function Dashboard({ runId }: { runId?: string }) {
               </strong>
             </div>
           </section>
-          <p className="run-identifier mono">Run {detail.id}</p>
+          <div className="run-meta"><span className="mono" title={detail.id}>{detail.id}</span><details><summary>About usage</summary><p>Totals include all recorded attempts. Costs estimate text tokens only; unknown usage and other provider charges are excluded.</p></details></div>
           {detail.status === "CANCELLED" && (
             <p className="notice">
               This run is cancelled. New steps will not start; handlers already
@@ -480,8 +497,8 @@ export function Dashboard({ runId }: { runId?: string }) {
           <div className="detail-grid">
             <section className="steps-panel">
               <div className="section-heading">
-                <h2>Execution steps</h2>
-                <span className="muted">Select to inspect</span>
+                <h2>Steps</h2>
+                <span className="count">{detail.steps.length}</span>
               </div>
               <div className="step-list">
                 {detail.steps.map((s) => (
@@ -507,16 +524,15 @@ export function Dashboard({ runId }: { runId?: string }) {
                         />
                       </span>
                       <strong>{s.step_name}</strong>
-                      <Icon name="chevron-right" className="step-arrow" />
                     </div>
                     <Status value={s.status} />
                     <p>
                       {s.depends_on.length
                         ? `After ${s.depends_on.map((id) => detail.steps.find((p) => p.id === id)?.step_name || id).join(", ")}`
-                        : "Starts independently"}
+                        : "No dependencies"}
                     </p>
                     <span className="muted">
-                      Attempt {s.attempt_count} of {s.max_attempts}
+                      {s.attempt_count} / {s.max_attempts} attempts
                     </span>
                   </button>
                 ))}
@@ -526,7 +542,7 @@ export function Dashboard({ runId }: { runId?: string }) {
                 <Json value={detail.input} />
               </details>
             </section>
-            {step && <StepInspection step={step} run={detail} />}
+            {step && <StepInspection key={step.id} step={step} run={detail} reload={reload} />}
           </div>
         </>
       )}

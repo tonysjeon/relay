@@ -94,15 +94,15 @@ export function RelayMark() {
       aria-hidden="true"
       focusable="false"
     >
-      <rect width="40" height="40" rx="11" fill="#253C60" />
+      <rect width="40" height="40" rx="8" fill="#303841" />
       <path
         d="M14 20h4a4 4 0 0 0 4-4v-2m-8 6h4a4 4 0 0 1 4 4v2"
-        stroke="#91B6EC"
+        stroke="#A9B7C5"
         strokeWidth="2.2"
       />
       <rect x="8" y="16" width="8" height="8" rx="2.5" fill="white" />
       <rect x="21" y="8" width="8" height="8" rx="2.5" fill="white" />
-      <rect x="21" y="24" width="8" height="8" rx="2.5" fill="#91B6EC" />
+      <rect x="21" y="24" width="8" height="8" rx="2.5" fill="#A9B7C5" />
     </svg>
   );
 }

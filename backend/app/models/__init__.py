@@ -1,3 +1,4 @@
+from app.models.activity import CodingEvent
 from app.models.runs import (
     LLMCall,
     StepAttempt,
@@ -10,6 +11,7 @@ from app.models.runs import (
 )
 
 __all__ = [
+    "CodingEvent",
     "LLMCall",
     "StepAttempt",
     "StepDependency",
